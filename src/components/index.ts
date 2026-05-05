@@ -5,3 +5,6 @@ export { TimeRangeToggle } from './TimeRangeToggle';
 export { TerritoryChart } from './TerritoryChart';
 export { TerritoryMap } from './TerritoryMap';
 export { ChartSection } from './ChartSection';
+export { ViewLevelToggle } from './ViewLevelToggle';
+export { DataSourceSelector } from './DataSourceSelector';
+export { MarimekkoChart, OblastGridView } from './MarimekkoChart';

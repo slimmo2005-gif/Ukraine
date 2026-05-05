@@ -4,12 +4,14 @@ import { TimeRangeToggle } from './TimeRangeToggle';
 import { TerritoryChart } from './TerritoryChart';
 
 /**
- * ChartSection - Container for chart with time range and type toggles
+ * ChartSection - Container for chart with time range toggle
+ * chartType: 'control' shows territory control levels
+ * chartType: 'change' shows daily/period changes
  */
 interface ChartSectionProps {
   data: DailyTerritoryData[];
   title: string;
-  chartType: 'change' | 'cumulative';
+  chartType: 'control' | 'change';
 }
 
 export function ChartSection({ data, title, chartType }: ChartSectionProps) {

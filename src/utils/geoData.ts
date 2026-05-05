@@ -82,7 +82,7 @@ export function generateMockFrontlineGeoJSON(date: string): FrontlineGeoJSON {
       },
       properties: {
         date,
-        region: front,
+        oblast: front,
         controllingParty,
         areaKm2: Math.floor(Math.random() * 500 + 100),
       },

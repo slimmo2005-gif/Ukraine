@@ -14,36 +14,27 @@ import {
 } from 'recharts';
 import type { DailyTerritoryData, ChartDataPoint, AggregatedData, TimeRange } from '@/types';
 import { 
-  calculateCumulativeData, 
+  calculateControlData, 
   aggregateWeekly, 
   aggregateMonthly
 } from '@/utils/calculations';
 
 /**
- * TerritoryChart - Multi-mode chart component for territorial changes
- * Supports: daily line, weekly/monthly bar, and cumulative area charts
+ * TerritoryChart - Multi-mode chart component for territorial control
+ * Shows: Control levels (area) or Daily changes (line/bar)
+ * Supports: Russian, Ukrainian, and Disputed territory
  */
 interface TerritoryChartProps {
   data: DailyTerritoryData[];
   timeRange: TimeRange;
-  chartType: 'change' | 'cumulative';
+  chartType: 'control' | 'change';
 }
 
 export function TerritoryChart({ data, timeRange, chartType }: TerritoryChartProps) {
   // Prepare data based on time range
   const getChartData = (): (ChartDataPoint | AggregatedData)[] => {
     if (timeRange === 'daily') {
-      return chartType === 'cumulative' 
-        ? calculateCumulativeData(data)
-        : data.map(d => ({
-            date: d.date,
-            formattedDate: new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-            russianGain: d.russian_gain_km2,
-            ukrainianGain: d.ukrainian_gain_km2,
-            netChange: d.russian_gain_km2 - d.ukrainian_gain_km2,
-            cumulativeRussian: 0,
-            cumulativeUkrainian: 0,
-          }));
+      return calculateControlData(data);
     }
     if (timeRange === 'weekly') {
       return aggregateWeekly(data);
@@ -65,7 +56,7 @@ export function TerritoryChart({ data, timeRange, chartType }: TerritoryChartPro
           <p className="text-gray-300 font-medium mb-2">{label}</p>
           {payload.map((entry, idx) => (
             <p key={idx} className="text-sm" style={{ color: entry.color }}>
-              {entry.name}: {entry.value.toFixed(2)} km²
+              {entry.name}: {entry.value.toFixed(1)} km²
             </p>
           ))}
         </div>
@@ -74,13 +65,11 @@ export function TerritoryChart({ data, timeRange, chartType }: TerritoryChartPro
     return null;
   };
 
-  // Get data keys for aggregated views
-  const getRussianKey = () => timeRange === 'daily' ? 'russianGain' : 'russianTotal';
-  const getUkrainianKey = () => timeRange === 'daily' ? 'ukrainianGain' : 'ukrainianTotal';
+  // Get X axis key based on time range
   const getXKey = () => timeRange === 'daily' ? 'formattedDate' : 'period';
 
-  // Render different chart types
-  if (chartType === 'cumulative') {
+  // CONTROL LEVELS CHART (Area chart showing total control)
+  if (chartType === 'control') {
     return (
       <ResponsiveContainer width="100%" height={300}>
         <AreaChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
@@ -92,6 +81,10 @@ export function TerritoryChart({ data, timeRange, chartType }: TerritoryChartPro
             <linearGradient id="colorUkrainian" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
               <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+            </linearGradient>
+            <linearGradient id="colorDisputed" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3}/>
+              <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}/>
             </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
@@ -114,8 +107,8 @@ export function TerritoryChart({ data, timeRange, chartType }: TerritoryChartPro
           />
           <Area
             type="monotone"
-            dataKey="cumulativeRussian"
-            name="Russian Cumulative"
+            dataKey="russianControlled"
+            name="Russian Controlled"
             stroke="#ef4444"
             fillOpacity={1}
             fill="url(#colorRussian)"
@@ -123,11 +116,20 @@ export function TerritoryChart({ data, timeRange, chartType }: TerritoryChartPro
           />
           <Area
             type="monotone"
-            dataKey="cumulativeUkrainian"
-            name="Ukrainian Cumulative"
+            dataKey="ukrainianControlled"
+            name="Ukrainian Controlled"
             stroke="#3b82f6"
             fillOpacity={1}
             fill="url(#colorUkrainian)"
+            strokeWidth={2}
+          />
+          <Area
+            type="monotone"
+            dataKey="disputed"
+            name="Disputed"
+            stroke="#f59e0b"
+            fillOpacity={1}
+            fill="url(#colorDisputed)"
             strokeWidth={2}
           />
         </AreaChart>
@@ -135,7 +137,8 @@ export function TerritoryChart({ data, timeRange, chartType }: TerritoryChartPro
     );
   }
 
-  // Bar chart for weekly/monthly, Line chart for daily
+  // DAILY CHANGES CHART
+  // Bar chart for weekly/monthly aggregated changes
   if (timeRange !== 'daily') {
     return (
       <ResponsiveContainer width="100%" height={300}>
@@ -161,14 +164,15 @@ export function TerritoryChart({ data, timeRange, chartType }: TerritoryChartPro
             wrapperStyle={{ paddingTop: '10px' }}
             formatter={(value) => <span className="text-gray-300">{value}</span>}
           />
-          <Bar dataKey={getRussianKey()} name="Russian Gain" fill="#ef4444" radius={[2, 2, 0, 0]} />
-          <Bar dataKey={getUkrainianKey()} name="Ukrainian Gain" fill="#3b82f6" radius={[2, 2, 0, 0]} />
+          <Bar dataKey="russianChangeSum" name="Russian Change" fill="#ef4444" radius={[2, 2, 0, 0]} />
+          <Bar dataKey="ukrainianChangeSum" name="Ukrainian Change" fill="#3b82f6" radius={[2, 2, 0, 0]} />
+          <Bar dataKey="disputedChangeSum" name="Disputed Change" fill="#f59e0b" radius={[2, 2, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     );
   }
 
-  // Daily line chart
+  // Daily line chart for changes
   return (
     <ResponsiveContainer width="100%" height={300}>
       <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
@@ -194,8 +198,8 @@ export function TerritoryChart({ data, timeRange, chartType }: TerritoryChartPro
         />
         <Line
           type="monotone"
-          dataKey="russianGain"
-          name="Russian Gain"
+          dataKey="russianChange"
+          name="Russian Change"
           stroke="#ef4444"
           strokeWidth={2}
           dot={false}
@@ -203,12 +207,21 @@ export function TerritoryChart({ data, timeRange, chartType }: TerritoryChartPro
         />
         <Line
           type="monotone"
-          dataKey="ukrainianGain"
-          name="Ukrainian Gain"
+          dataKey="ukrainianChange"
+          name="Ukrainian Change"
           stroke="#3b82f6"
           strokeWidth={2}
           dot={false}
           activeDot={{ r: 6, fill: '#3b82f6' }}
+        />
+        <Line
+          type="monotone"
+          dataKey="disputedChange"
+          name="Disputed Change"
+          stroke="#f59e0b"
+          strokeWidth={2}
+          dot={false}
+          activeDot={{ r: 6, fill: '#f59e0b' }}
         />
       </LineChart>
     </ResponsiveContainer>
