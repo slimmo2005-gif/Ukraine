@@ -160,13 +160,13 @@ function App() {
     }
   }, [currentData, viewLevel, selectedOblast]);
 
-  // Current day's data for oblast breakdown
-  const todayData = currentData[currentData.length - 1];
+  // Current day's data for oblast breakdown (only if data exists)
+  const todayData = currentData.length > 0 ? currentData[currentData.length - 1] : null;
 
   // Active oblasts for display
-  const activeOblasts = todayData.oblasts.filter(o => 
+  const activeOblasts = todayData?.oblasts?.filter(o => 
     o.russian_controlled_km2 > 0 || o.disputed_km2 > 0
-  ).sort((a, b) => b.russian_controlled_km2 - a.russian_controlled_km2);
+  ).sort((a, b) => b.russian_controlled_km2 - a.russian_controlled_km2) || [];
 
   return (
     <div className="min-h-screen bg-osint-dark text-white">
@@ -183,6 +183,31 @@ function App() {
           </div>
         )}
 
+        {/* No Data State */}
+        {!isLoading && currentData.length === 0 && (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center bg-osint-card rounded-lg p-8 border border-osint-border">
+              <div className="text-4xl mb-4">📊</div>
+              <h3 className="text-xl font-semibold text-white mb-2">No Data Available</h3>
+              <p className="text-gray-400 mb-4">The data repository doesn&apos;t have any territory data yet.</p>
+              <p className="text-sm text-gray-500">
+                Expected: <code className="bg-osint-dark px-2 py-1 rounded">2026-05-03.json</code> and <code className="bg-osint-dark px-2 py-1 rounded">2026-05-04.json</code>
+              </p>
+              <p className="text-xs text-gray-600 mt-4">
+                Data source:{' '}
+                <a 
+                  href="https://github.com/slimmo2005-gif/ukraine-territory-data" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-ukraine-blue hover:underline"
+                >
+                  github.com/slimmo2005-gif/ukraine-territory-data
+                </a>
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Error State */}
         {error && !isLoading && (
           <div className="bg-red-900/20 border border-red-500/50 rounded-lg p-4 mb-8">
@@ -195,6 +220,9 @@ function App() {
           </div>
         )}
 
+        {/* Dashboard Content - Only show when data exists */}
+        {currentData.length > 0 && (
+          <>
         {/* Controls Bar */}
         <section className="mb-8">
           <div className="bg-osint-card rounded-lg p-4 border border-osint-border">
@@ -333,15 +361,15 @@ function App() {
           </div>
         </section>
 
-        {/* Marimekko Chart (only in oblast view) */}
-        {viewLevel === 'oblast' && (
+        {/* Marimekko Chart (only in oblast view with data) */}
+        {viewLevel === 'oblast' && todayData && (
           <section className="mb-10">
             <MarimekkoChart oblasts={todayData.oblasts} />
           </section>
         )}
 
-        {/* Oblast Grid View (only in oblast view) */}
-        {viewLevel === 'oblast' && (
+        {/* Oblast Grid View (only in oblast view with data) */}
+        {viewLevel === 'oblast' && todayData && (
           <section className="mb-10">
             <OblastGridView oblasts={todayData.oblasts} />
           </section>
@@ -400,7 +428,7 @@ function App() {
                 Data Source: {dataSource === 'deepstate' ? 'DeepStateMap' : dataSource === 'isw' ? 'Institute for the Study of War' : 'Combined (Averaged)'}
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                Last updated: {new Date(todayData.last_updated).toLocaleString()} • {currentData.length} days loaded
+                Last updated: {todayData ? new Date(todayData.last_updated).toLocaleString() : 'N/A'} • {currentData.length} days loaded
               </p>
               <p className="text-xs text-gray-600 mt-1">
                 <a 
@@ -423,6 +451,8 @@ function App() {
             </div>
           </div>
         </footer>
+          </>
+        )}
       </main>
     </div>
   );
