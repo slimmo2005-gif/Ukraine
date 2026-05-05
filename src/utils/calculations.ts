@@ -8,9 +8,9 @@ export function calculateControlData(data: DailyTerritoryData[]): ChartDataPoint
   return data.map(day => ({
     date: day.date,
     formattedDate: formatDate(day.date),
-    // Control amounts
+    // Control amounts - Ukrainian includes uncontested (total - russian - disputed)
     russianControlled: day.total_russian_controlled_km2,
-    ukrainianControlled: day.total_ukrainian_controlled_km2,
+    ukrainianControlled: day.total_area_km2 - day.total_russian_controlled_km2 - day.total_disputed_km2,
     disputed: day.total_disputed_km2,
     // Daily changes
     russianChange: day.russian_change_km2,
@@ -39,9 +39,9 @@ export function calculateRollingAverage(
     result.push({
       date: data[i].date,
       formattedDate: formatDate(data[i].date),
-      // Show current control levels
+      // Show current control levels - Ukrainian includes uncontested
       russianControlled: data[i].total_russian_controlled_km2,
-      ukrainianControlled: data[i].total_ukrainian_controlled_km2,
+      ukrainianControlled: data[i].total_area_km2 - data[i].total_russian_controlled_km2 - data[i].total_disputed_km2,
       disputed: data[i].total_disputed_km2,
       // Show rolling average changes
       russianChange: parseFloat(avgRussianChange.toFixed(2)),
@@ -61,6 +61,7 @@ export function aggregateWeekly(data: DailyTerritoryData[]): AggregatedData[] {
     russianControlSum: number; 
     ukrainianControlSum: number; 
     disputedControlSum: number;
+    totalAreaSum: number;
     russianChangeSum: number;
     ukrainianChangeSum: number;
     disputedChangeSum: number;
@@ -74,15 +75,19 @@ export function aggregateWeekly(data: DailyTerritoryData[]): AggregatedData[] {
     const key = `${year}-W${week.toString().padStart(2, '0')}`;
     
     const existing = weekly.get(key) || { 
-      russianControlSum: 0, ukrainianControlSum: 0, disputedControlSum: 0,
+      russianControlSum: 0, ukrainianControlSum: 0, disputedControlSum: 0, totalAreaSum: 0,
       russianChangeSum: 0, ukrainianChangeSum: 0, disputedChangeSum: 0,
       days: 0 
     };
     
+    // Ukrainian controlled = total - russian - disputed (includes uncontested)
+    const ukrainianControlled = day.total_area_km2 - day.total_russian_controlled_km2 - day.total_disputed_km2;
+    
     weekly.set(key, {
       russianControlSum: existing.russianControlSum + day.total_russian_controlled_km2,
-      ukrainianControlSum: existing.ukrainianControlSum + day.total_ukrainian_controlled_km2,
+      ukrainianControlSum: existing.ukrainianControlSum + ukrainianControlled,
       disputedControlSum: existing.disputedControlSum + day.total_disputed_km2,
+      totalAreaSum: existing.totalAreaSum + day.total_area_km2,
       russianChangeSum: existing.russianChangeSum + day.russian_change_km2,
       ukrainianChangeSum: existing.ukrainianChangeSum + day.ukrainian_change_km2,
       disputedChangeSum: existing.disputedChangeSum + day.disputed_change_km2,
@@ -110,6 +115,7 @@ export function aggregateMonthly(data: DailyTerritoryData[]): AggregatedData[] {
     russianControlSum: number; 
     ukrainianControlSum: number; 
     disputedControlSum: number;
+    totalAreaSum: number;
     russianChangeSum: number;
     ukrainianChangeSum: number;
     disputedChangeSum: number;
@@ -120,15 +126,19 @@ export function aggregateMonthly(data: DailyTerritoryData[]): AggregatedData[] {
     const key = day.date.substring(0, 7); // YYYY-MM
     
     const existing = monthly.get(key) || { 
-      russianControlSum: 0, ukrainianControlSum: 0, disputedControlSum: 0,
+      russianControlSum: 0, ukrainianControlSum: 0, disputedControlSum: 0, totalAreaSum: 0,
       russianChangeSum: 0, ukrainianChangeSum: 0, disputedChangeSum: 0,
       days: 0 
     };
     
+    // Ukrainian controlled = total - russian - disputed (includes uncontested)
+    const ukrainianControlled = day.total_area_km2 - day.total_russian_controlled_km2 - day.total_disputed_km2;
+    
     monthly.set(key, {
       russianControlSum: existing.russianControlSum + day.total_russian_controlled_km2,
-      ukrainianControlSum: existing.ukrainianControlSum + day.total_ukrainian_controlled_km2,
+      ukrainianControlSum: existing.ukrainianControlSum + ukrainianControlled,
       disputedControlSum: existing.disputedControlSum + day.total_disputed_km2,
+      totalAreaSum: existing.totalAreaSum + day.total_area_km2,
       russianChangeSum: existing.russianChangeSum + day.russian_change_km2,
       ukrainianChangeSum: existing.ukrainianChangeSum + day.ukrainian_change_km2,
       disputedChangeSum: existing.disputedChangeSum + day.disputed_change_km2,
@@ -166,9 +176,12 @@ export function getTodayMetrics(data: DailyTerritoryData[]) {
     };
   }
   
+  // Ukrainian controlled = total - russian - disputed (includes uncontested)
+  const ukrainianControlled = today.total_area_km2 - today.total_russian_controlled_km2 - today.total_disputed_km2;
+  
   return {
     russianControlled: today.total_russian_controlled_km2,
-    ukrainianControlled: today.total_ukrainian_controlled_km2,
+    ukrainianControlled: ukrainianControlled,
     disputed: today.total_disputed_km2,
     russianChange: today.russian_change_km2,
     ukrainianChange: today.ukrainian_change_km2,
@@ -187,8 +200,9 @@ export function get7DaySummary(data: DailyTerritoryData[]) {
   const disputedChangeSum = last7Days.reduce((sum, d) => sum + d.disputed_change_km2, 0);
   
   // Average control levels over the period
+  // Ukrainian controlled = total - russian - disputed (includes uncontested)
   const russianAvg = last7Days.reduce((sum, d) => sum + d.total_russian_controlled_km2, 0) / 7;
-  const ukrainianAvg = last7Days.reduce((sum, d) => sum + d.total_ukrainian_controlled_km2, 0) / 7;
+  const ukrainianAvg = last7Days.reduce((sum, d) => sum + (d.total_area_km2 - d.total_russian_controlled_km2 - d.total_disputed_km2), 0) / 7;
   const disputedAvg = last7Days.reduce((sum, d) => sum + d.total_disputed_km2, 0) / 7;
   
   return {
@@ -217,9 +231,12 @@ export function getCurrentControlTotals(data: DailyTerritoryData[]) {
     };
   }
   
+  // Ukrainian controlled = total - russian - disputed (includes uncontested)
+  const ukrainianControlled = latest.total_area_km2 - latest.total_russian_controlled_km2 - latest.total_disputed_km2;
+  
   return {
     russianControlled: latest.total_russian_controlled_km2,
-    ukrainianControlled: latest.total_ukrainian_controlled_km2,
+    ukrainianControlled: ukrainianControlled,
     disputed: latest.total_disputed_km2,
     totalArea: latest.total_area_km2,
   };
