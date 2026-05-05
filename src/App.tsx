@@ -398,10 +398,10 @@ function App() {
                           {oblast.ukrainian_controlled_km2.toFixed(1)} km²
                         </td>
                         <td className="py-2 px-3 text-right text-amber-400">
-                          {oblast.disputed_km2 > 0 ? `${oblast.disputed_km2.toFixed(1)} km²` : '-'}
+                          {oblast.disputed_controlled_km2 > 0 ? `${oblast.disputed_controlled_km2.toFixed(1)} km²` : '-'}
                         </td>
                         <td className="py-2 px-3 text-right text-white">
-                          {((oblast.russian_controlled_km2 / oblast.total_area_km2) * 100).toFixed(1)}%
+                          {Math.min((oblast.russian_controlled_km2 / oblast.total_area_km2) * 100, 100).toFixed(1)}%
                         </td>
                       </tr>
                     ))}

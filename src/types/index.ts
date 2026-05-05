@@ -43,7 +43,7 @@ export interface OblastControl {
   oblast: OblastKey;
   russian_controlled_km2: number;
   ukrainian_controlled_km2: number;
-  disputed_km2: number;
+  disputed_controlled_km2: number;
   total_area_km2: number;
   // Change from previous day
   russian_change_km2?: number;

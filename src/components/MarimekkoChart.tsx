@@ -16,8 +16,8 @@ export function MarimekkoChart({ oblasts }: MarimekkoChartProps) {
     const sorted = [...oblasts]
       .filter(o => o.total_area_km2 > 0)
       .sort((a, b) => {
-        const aContested = a.russian_controlled_km2 + a.disputed_km2;
-        const bContested = b.russian_controlled_km2 + b.disputed_km2;
+        const aContested = a.russian_controlled_km2 + a.disputed_controlled_km2;
+        const bContested = b.russian_controlled_km2 + b.disputed_controlled_km2;
         return bContested - aContested;
       });
 
@@ -26,7 +26,7 @@ export function MarimekkoChart({ oblasts }: MarimekkoChartProps) {
     return sorted.map(o => {
       const russianPct = (o.russian_controlled_km2 / o.total_area_km2) * 100;
       const ukrainianPct = (o.ukrainian_controlled_km2 / o.total_area_km2) * 100;
-      const disputedPct = (o.disputed_km2 / o.total_area_km2) * 100;
+      const disputedPct = (o.disputed_controlled_km2 / o.total_area_km2) * 100;
       const uncontestedPct = 100 - russianPct - ukrainianPct - disputedPct;
 
       const oblastKey = o.oblast as OblastKey;
@@ -36,7 +36,7 @@ export function MarimekkoChart({ oblasts }: MarimekkoChartProps) {
         totalArea: o.total_area_km2,
         russian: o.russian_controlled_km2,
         ukrainian: o.ukrainian_controlled_km2,
-        disputed: o.disputed_km2,
+        disputed: o.disputed_controlled_km2,
         uncontested: Math.max(0, uncontestedPct / 100 * o.total_area_km2),
         russianPct,
         ukrainianPct,
@@ -164,7 +164,7 @@ export function OblastGridView({ oblasts }: MarimekkoChartProps) {
       .map(o => {
         const russianPct = (o.russian_controlled_km2 / o.total_area_km2) * 100;
         const ukrainianPct = (o.ukrainian_controlled_km2 / o.total_area_km2) * 100;
-        const disputedPct = (o.disputed_km2 / o.total_area_km2) * 100;
+        const disputedPct = (o.disputed_controlled_km2 / o.total_area_km2) * 100;
         const oblastKey = o.oblast as OblastKey;
 
         return {
