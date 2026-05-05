@@ -276,11 +276,12 @@ function App() {
               {(() => {
                 const totalArea = metrics.current.totalArea || 1;
                 const russianPct = (metrics.current.russianControlled / totalArea) * 100;
-                const ukrainianPct = (metrics.current.ukrainianControlled / totalArea) * 100;
                 const disputedPct = (metrics.current.disputed / totalArea) * 100;
-                const uncontestedPct = 100 - russianPct - ukrainianPct - disputedPct;
+                // Ukrainian includes both controlled + uncontested (not contested = all other land)
+                const ukrainianPct = 100 - russianPct - disputedPct;
                 
                 const formatLarge = (n: number) => Math.round(n).toLocaleString();
+                const ukrainianTotal = totalArea - metrics.current.russianControlled - metrics.current.disputed;
                 
                 return (
                   <div className="space-y-3">
@@ -295,7 +296,7 @@ function App() {
                       <span className="text-gray-400">Ukrainian Controlled</span>
                       <div className="text-right">
                         <span className="text-blue-400 font-medium">{ukrainianPct.toFixed(1)}%</span>
-                        <span className="text-gray-500 text-sm ml-2">({formatLarge(metrics.current.ukrainianControlled)} km²)</span>
+                        <span className="text-gray-500 text-sm ml-2">({formatLarge(ukrainianTotal)} km²)</span>
                       </div>
                     </div>
                     {(metrics.current.disputed > 0 || disputedPct > 0.1) && (
@@ -304,15 +305,6 @@ function App() {
                         <div className="text-right">
                           <span className="text-amber-400 font-medium">{disputedPct.toFixed(1)}%</span>
                           <span className="text-gray-500 text-sm ml-2">({formatLarge(metrics.current.disputed)} km²)</span>
-                        </div>
-                      </div>
-                    )}
-                    {uncontestedPct > 0.1 && (
-                      <div className="flex justify-between">
-                        <span className="text-gray-400">Oblasts not contested</span>
-                        <div className="text-right">
-                          <span className="text-gray-300 font-medium">{uncontestedPct.toFixed(1)}%</span>
-                          <span className="text-gray-500 text-sm ml-2">({formatLarge(totalArea * uncontestedPct / 100)} km²)</span>
                         </div>
                       </div>
                     )}

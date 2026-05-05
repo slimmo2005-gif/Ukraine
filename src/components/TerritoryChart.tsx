@@ -44,6 +44,14 @@ export function TerritoryChart({ data, timeRange, chartType }: TerritoryChartPro
 
   const chartData = getChartData();
 
+  // Number formatter for chart values
+  const formatNumber = (v: number) => {
+    if (Math.abs(v) >= 1000) {
+      return Math.round(v).toLocaleString();
+    }
+    return v.toFixed(1);
+  };
+
   // Custom tooltip with dark theme
   const CustomTooltip = ({ active, payload, label }: {
     active?: boolean;
@@ -56,7 +64,7 @@ export function TerritoryChart({ data, timeRange, chartType }: TerritoryChartPro
           <p className="text-gray-300 font-medium mb-2">{label}</p>
           {payload.map((entry, idx) => (
             <p key={idx} className="text-sm" style={{ color: entry.color }}>
-              {entry.name}: {entry.value.toFixed(1)} km²
+              {entry.name}: {formatNumber(entry.value)} km²
             </p>
           ))}
         </div>
