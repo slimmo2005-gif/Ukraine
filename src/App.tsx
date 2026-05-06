@@ -7,6 +7,7 @@ import { DataSourceSelector } from '@/components/DataSourceSelector';
 import { ViewLevelToggle } from '@/components/ViewLevelToggle';
 import { MarimekkoChart, OblastGridView } from '@/components/MarimekkoChart';
 import { OBLAST_NAMES } from '@/data/mockData';
+import { EXCLUDED_DATES } from '@/config/excludedDates';
 import { 
   getTodayMetrics, 
   get7DaySummary, 
@@ -20,7 +21,6 @@ import type { DataSource, ViewLevel, OblastKey, DailyTerritoryData } from '@/typ
  * Repo: https://github.com/slimmo2005-gif/ukraine-territory-data
  */
 const DATA_REPO_BASE_URL = 'https://raw.githubusercontent.com/slimmo2005-gif/ukraine-territory-data/master/data';
-const EXCLUDED_DATES = new Set(['2026-05-03']);
 
 function toDateKey(value: string): string {
   return value.split('T')[0];
