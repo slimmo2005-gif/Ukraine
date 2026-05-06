@@ -222,6 +222,62 @@ function App() {
   const formatPercent = (value: number) => `${Math.round(value).toLocaleString()}%`;
   const formatDeltaKm2 = (value: number) => `${value >= 0 ? '+' : ''}${Math.round(value).toLocaleString()} km²`;
 
+  const dataQualityWarnings = useMemo(() => {
+    if (!todayData?.oblasts?.length) {
+      return [] as string[];
+    }
+
+    const warnings: string[] = [];
+    const oblastRows = todayData.oblasts;
+
+    // Basic row-level checks.
+    for (const row of oblastRows) {
+      const disputed = row.disputed_controlled_km2 || 0;
+      const total = row.total_area_km2 || 0;
+      const rowSum = row.russian_controlled_km2 + row.ukrainian_controlled_km2 + disputed;
+
+      if (row.russian_controlled_km2 < 0 || row.ukrainian_controlled_km2 < 0 || disputed < 0) {
+        warnings.push(`Negative control area detected in ${OBLAST_NAMES[row.oblast] || row.oblast}.`);
+      }
+
+      if (total > 0 && rowSum > total * 1.01) {
+        warnings.push(`${OBLAST_NAMES[row.oblast] || row.oblast} control sum exceeds total area.`);
+      }
+    }
+
+    // Heuristic checks for obviously suspicious frontline distribution.
+    const byKey = Object.fromEntries(oblastRows.map((o) => [o.oblast, o]));
+    const pct = (key: string) => {
+      const row = byKey[key];
+      if (!row || !row.total_area_km2) return null;
+      return (row.russian_controlled_km2 / row.total_area_km2) * 100;
+    };
+
+    const crimeaPct = pct('crimea');
+    const luhanskPct = pct('luhansk');
+    const donetskPct = pct('donetsk');
+    const zaporizhzhiaPct = pct('zaporizhzhia');
+    const khersonPct = pct('kherson');
+
+    if (crimeaPct !== null && crimeaPct < 90) {
+      warnings.push('Crimea Russian control is unexpectedly low (<90%).');
+    }
+    if (luhanskPct !== null && luhanskPct < 85) {
+      warnings.push('Luhansk Russian control is unexpectedly low (<85%).');
+    }
+    if (donetskPct !== null && donetskPct < 40) {
+      warnings.push('Donetsk Russian control is unexpectedly low (<40%).');
+    }
+    if (zaporizhzhiaPct !== null && zaporizhzhiaPct > 80) {
+      warnings.push('Zaporizhzhia Russian control is unexpectedly high (>80%).');
+    }
+    if (khersonPct !== null && khersonPct < 5) {
+      warnings.push('Kherson Russian control is unexpectedly low (<5%).');
+    }
+
+    return warnings.slice(0, 5);
+  }, [todayData]);
+
   return (
     <div className="min-h-screen bg-osint-dark text-white">
       <Header />
@@ -271,6 +327,18 @@ function App() {
             <p className="text-red-400/70 text-xs mt-1">
               Using fallback mock data. Data source: GitHub repo may not have data yet.
             </p>
+          </div>
+        )}
+
+        {/* Data Quality Warning */}
+        {!isLoading && !error && dataQualityWarnings.length > 0 && (
+          <div className="bg-amber-900/20 border border-amber-500/50 rounded-lg p-4 mb-8">
+            <p className="text-amber-300 text-sm font-semibold mb-2">Data Quality Warning</p>
+            <ul className="text-amber-200/90 text-xs space-y-1">
+              {dataQualityWarnings.map((warning, idx) => (
+                <li key={idx}>- {warning}</li>
+              ))}
+            </ul>
           </div>
         )}
 
