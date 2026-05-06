@@ -20,8 +20,14 @@ import type { DataSource, ViewLevel, OblastKey, DailyTerritoryData } from '@/typ
  * Repo: https://github.com/slimmo2005-gif/ukraine-territory-data
  */
 const DATA_REPO_BASE_URL = 'https://raw.githubusercontent.com/slimmo2005-gif/ukraine-territory-data/master/data';
+const EXCLUDED_DATES = new Set(['2026-05-03']);
 
 async function fetchDataForDate(dateString: string): Promise<DailyTerritoryData | null> {
+  if (EXCLUDED_DATES.has(dateString)) {
+    console.log(`Skipping excluded date ${dateString}`);
+    return null;
+  }
+
   try {
     const url = `${DATA_REPO_BASE_URL}/${dateString}.json`;
     const response = await fetch(url);
