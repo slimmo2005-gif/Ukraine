@@ -51,8 +51,14 @@ async function fetchDataForDate(dateString: string): Promise<DailyTerritoryData 
   }
 
   try {
-    const url = `${DATA_REPO_BASE_URL}/${dateString}.json`;
-    const response = await fetch(url);
+    const url = `${DATA_REPO_BASE_URL}/${dateString}.json?ts=${Date.now()}`;
+    const response = await fetch(url, {
+      cache: 'no-store',
+      headers: {
+        'Cache-Control': 'no-cache',
+        Pragma: 'no-cache',
+      },
+    });
     
     if (!response.ok) {
       if (response.status === 404) {
@@ -196,16 +202,21 @@ function App() {
   const todayData = currentData.length > 0 ? currentData[currentData.length - 1] : null;
 
   // Active oblasts for display
-  const activeOblasts = todayData?.oblasts?.filter((o) => {
-    if (o.oblast === 'crimea') {
-      return true;
+  const activeOblasts = useMemo(() => {
+    if (!todayData?.oblasts) {
+      return [];
     }
-    return o.russian_controlled_km2 > 0 || o.disputed_controlled_km2 > 0;
-  }).sort((a, b) => {
-    if (a.oblast === 'crimea') return 1;
-    if (b.oblast === 'crimea') return -1;
-    return b.russian_controlled_km2 - a.russian_controlled_km2;
-  }) || [];
+
+    const oblasts = todayData.oblasts;
+    const crimeaRow = oblasts.find((o) => o.oblast.toLowerCase() === 'crimea');
+
+    const filtered = oblasts
+      .filter((o) => o.oblast.toLowerCase() !== 'crimea')
+      .filter((o) => o.russian_controlled_km2 > 0 || o.disputed_controlled_km2 > 0)
+      .sort((a, b) => b.russian_controlled_km2 - a.russian_controlled_km2);
+
+    return crimeaRow ? [crimeaRow, ...filtered] : filtered;
+  }, [todayData]);
 
   const formatKm2 = (value: number) => `${Math.round(value).toLocaleString()} km²`;
   const formatPercent = (value: number) => `${Math.round(value).toLocaleString()}%`;
