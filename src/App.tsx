@@ -51,7 +51,7 @@ async function fetchDataForDate(dateString: string): Promise<DailyTerritoryData 
   }
 
   try {
-    const url = `${DATA_REPO_BASE_URL}/${dateString}.json?ts=${Date.now()}`;
+    const url = `${DATA_REPO_BASE_URL}/${dateString}.json`;
     const response = await fetch(url, {
       cache: 'no-store',
       headers: {
