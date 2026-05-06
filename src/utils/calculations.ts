@@ -276,7 +276,16 @@ export function getDataForView(data: DailyTerritoryData[], viewLevel: ViewLevel,
  * Formats ISO date string to readable format
  */
 export function formatDate(dateStr: string): string {
-  const date = new Date(dateStr);
+  // Parse YYYY-MM-DD as a local date to avoid timezone day-shift in labels.
+  const isoDateOnlyMatch = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const date = isoDateOnlyMatch
+    ? new Date(
+        Number(isoDateOnlyMatch[1]),
+        Number(isoDateOnlyMatch[2]) - 1,
+        Number(isoDateOnlyMatch[3]),
+      )
+    : new Date(dateStr);
+
   return date.toLocaleDateString('en-US', { 
     month: 'short', 
     day: 'numeric' 

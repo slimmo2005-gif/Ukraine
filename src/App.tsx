@@ -23,7 +23,26 @@ import type { DataSource, ViewLevel, OblastKey, DailyTerritoryData } from '@/typ
 const DATA_REPO_BASE_URL = 'https://raw.githubusercontent.com/slimmo2005-gif/ukraine-territory-data/master/data';
 
 function toDateKey(value: string): string {
-  return value.split('T')[0];
+  const trimmed = value.trim();
+  const isoDateOnlyMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})$/);
+  if (isoDateOnlyMatch) {
+    return isoDateOnlyMatch[1];
+  }
+
+  const isoDateTimeMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})T/);
+  if (isoDateTimeMatch) {
+    return isoDateTimeMatch[1];
+  }
+
+  const parsed = new Date(trimmed);
+  if (!Number.isNaN(parsed.getTime())) {
+    const year = parsed.getFullYear();
+    const month = String(parsed.getMonth() + 1).padStart(2, '0');
+    const day = String(parsed.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  return trimmed;
 }
 
 async function fetchDataForDate(dateString: string): Promise<DailyTerritoryData | null> {
