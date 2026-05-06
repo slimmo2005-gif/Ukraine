@@ -150,7 +150,7 @@ export function generateMockControlData(source: DataSource = 'deepstate'): Daily
         oblast: oblastKey,
         russian_controlled_km2: parseFloat(newRussian.toFixed(1)),
         ukrainian_controlled_km2: parseFloat(newUkrainian.toFixed(1)),
-        disputed_km2: parseFloat(newDisputed.toFixed(1)),
+        disputed_controlled_km2: parseFloat(newDisputed.toFixed(1)),
         total_area_km2: totalArea,
         russian_change_km2: parseFloat(actualRussianChange.toFixed(1)),
         ukrainian_change_km2: parseFloat(actualUkrainianChange.toFixed(1)),
@@ -161,7 +161,7 @@ export function generateMockControlData(source: DataSource = 'deepstate'): Daily
     // Calculate totals
     const totalRussian = oblasts.reduce((sum, o) => sum + o.russian_controlled_km2, 0);
     const totalUkrainian = oblasts.reduce((sum, o) => sum + o.ukrainian_controlled_km2, 0);
-    const totalDisputed = oblasts.reduce((sum, o) => sum + o.disputed_km2, 0);
+    const totalDisputed = oblasts.reduce((sum, o) => sum + o.disputed_controlled_km2, 0);
     const totalArea = Object.values(OBLAST_AREAS).reduce((sum, a) => sum + a, 0);
     
     const hasSignificantActivity = Math.abs(totalRussianChange) > 5 || Math.abs(totalUkrainianChange) > 3;

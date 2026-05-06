@@ -1,6 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Header } from '@/components/Header';
-import { MetricCard } from '@/components/MetricCard';
 import { ChartSection } from '@/components/ChartSection';
 import { TerritoryMap } from '@/components/TerritoryMap';
 import { DataSourceSelector } from '@/components/DataSourceSelector';
@@ -198,8 +197,12 @@ function App() {
 
   // Active oblasts for display
   const activeOblasts = todayData?.oblasts?.filter(o => 
-    o.russian_controlled_km2 > 0 || o.disputed_km2 > 0
+    o.russian_controlled_km2 > 0 || o.disputed_controlled_km2 > 0
   ).sort((a, b) => b.russian_controlled_km2 - a.russian_controlled_km2) || [];
+
+  const formatKm2 = (value: number) => `${Math.round(value).toLocaleString()} km²`;
+  const formatPercent = (value: number) => `${Math.round(value).toLocaleString()}%`;
+  const formatDeltaKm2 = (value: number) => `${value >= 0 ? '+' : ''}${Math.round(value).toLocaleString()} km²`;
 
   return (
     <div className="min-h-screen bg-osint-dark text-white">
@@ -274,7 +277,7 @@ function App() {
           </div>
         </section>
 
-        {/* Metrics Overview */}
+        {/* Metrics + Oblast Overview */}
         <section className="mb-10">
           <div className="flex items-center gap-4 mb-6">
             <h2 className="text-2xl font-bold text-white">
@@ -289,63 +292,53 @@ function App() {
             </span>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <MetricCard
-              title={viewLevel === 'total' ? 'Total Territory Control' : 'Oblast Territory Control'}
-              russianValue={metrics.today.russianControlled}
-              ukrainianValue={metrics.today.ukrainianControlled}
-              disputedValue={metrics.today.disputed}
-              unit="km²"
-              russianChange={metrics.today.russianChange}
-              ukrainianChange={metrics.today.ukrainianChange}
-              disputedChange={metrics.today.disputedChange}
-              showNetChange={true}
-            />
-            
-            {/* Summary Stats */}
             <div className="bg-osint-card rounded-lg p-6 border border-osint-border">
-              <h3 className="text-lg font-semibold text-white mb-4">
-                {viewLevel === 'total' ? 'Territory Breakdown' : 'Oblast Details'}
-              </h3>
+              <h3 className="text-lg font-semibold text-white mb-4">Territory Breakdown</h3>
               {(() => {
                 const totalArea = metrics.current.totalArea || 1;
                 const russianPct = (metrics.current.russianControlled / totalArea) * 100;
                 const disputedPct = (metrics.current.disputed / totalArea) * 100;
-                // Ukrainian includes both controlled + uncontested (not contested = all other land)
                 const ukrainianPct = 100 - russianPct - disputedPct;
-                
-                const formatLarge = (n: number) => Math.round(n).toLocaleString();
                 const ukrainianTotal = totalArea - metrics.current.russianControlled - metrics.current.disputed;
-                
+                const netChange = metrics.today.russianChange - metrics.today.ukrainianChange;
+
                 return (
                   <div className="space-y-3">
                     <div className="flex justify-between">
                       <span className="text-gray-400">Russian Controlled</span>
                       <div className="text-right">
-                        <span className="text-red-400 font-medium">{russianPct.toFixed(1)}%</span>
-                        <span className="text-gray-500 text-sm ml-2">({formatLarge(metrics.current.russianControlled)} km²)</span>
+                        <span className="text-red-400 font-medium">{formatPercent(russianPct)}</span>
+                        <span className="text-gray-500 text-sm ml-2">({formatKm2(metrics.current.russianControlled)})</span>
+                        <p className="text-xs text-red-400/80">{formatDeltaKm2(metrics.today.russianChange)} today</p>
                       </div>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-400">Ukrainian Controlled</span>
                       <div className="text-right">
-                        <span className="text-blue-400 font-medium">{ukrainianPct.toFixed(1)}%</span>
-                        <span className="text-gray-500 text-sm ml-2">({formatLarge(ukrainianTotal)} km²)</span>
+                        <span className="text-blue-400 font-medium">{formatPercent(ukrainianPct)}</span>
+                        <span className="text-gray-500 text-sm ml-2">({formatKm2(ukrainianTotal)})</span>
+                        <p className="text-xs text-blue-400/80">{formatDeltaKm2(metrics.today.ukrainianChange)} today</p>
                       </div>
                     </div>
                     {(metrics.current.disputed > 0 || disputedPct > 0.1) && (
                       <div className="flex justify-between">
                         <span className="text-gray-400">Disputed/Contested</span>
                         <div className="text-right">
-                          <span className="text-amber-400 font-medium">{disputedPct.toFixed(1)}%</span>
-                          <span className="text-gray-500 text-sm ml-2">({formatLarge(metrics.current.disputed)} km²)</span>
+                          <span className="text-amber-400 font-medium">{formatPercent(disputedPct)}</span>
+                          <span className="text-gray-500 text-sm ml-2">({formatKm2(metrics.current.disputed)})</span>
+                          <p className="text-xs text-amber-400/80">{formatDeltaKm2(metrics.today.disputedChange)} today</p>
                         </div>
                       </div>
                     )}
                     <div className="border-t border-osint-border pt-3 mt-3">
                       <div className="flex justify-between">
                         <span className="text-gray-400 font-medium">Total Area</span>
-                        <span className="text-white font-bold">
-                          {formatLarge(totalArea)} km²
+                        <span className="text-white font-bold">{formatKm2(totalArea)}</span>
+                      </div>
+                      <div className="flex justify-between mt-2">
+                        <span className="text-gray-400 font-medium">Net Change</span>
+                        <span className={netChange >= 0 ? 'text-red-400 font-semibold' : 'text-blue-400 font-semibold'}>
+                          {formatDeltaKm2(netChange)} {netChange >= 0 ? '(Russian advantage)' : '(Ukrainian advantage)'}
                         </span>
                       </div>
                     </div>
@@ -353,6 +346,58 @@ function App() {
                 );
               })()}
             </div>
+
+            {viewLevel === 'total' && (
+              <div className="bg-osint-card rounded-lg p-6 border border-osint-border">
+                <h3 className="text-lg font-semibold text-white mb-4">
+                  Oblast Breakdown - Russian Controlled Territory
+                </h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-osint-border">
+                        <th className="text-left py-2 px-3 text-gray-400 font-medium">Oblast</th>
+                        <th className="text-right py-2 px-3 text-gray-400 font-medium">Russian</th>
+                        <th className="text-right py-2 px-3 text-gray-400 font-medium">Ukrainian</th>
+                        <th className="text-right py-2 px-3 text-gray-400 font-medium">Disputed</th>
+                        <th className="text-right py-2 px-3 text-gray-400 font-medium">Russian %</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activeOblasts.map((oblast) => {
+                        const disputed = oblast.disputed_controlled_km2 || 0;
+                        const denominator = Math.max(
+                          oblast.total_area_km2,
+                          oblast.russian_controlled_km2 + oblast.ukrainian_controlled_km2 + disputed,
+                          1,
+                        );
+                        const russianPct = (oblast.russian_controlled_km2 / denominator) * 100;
+
+                        return (
+                          <tr key={oblast.oblast} className="border-b border-osint-border/50 hover:bg-white/5">
+                            <td className="py-2 px-3 text-white">
+                              {OBLAST_NAMES[oblast.oblast]}
+                            </td>
+                            <td className="py-2 px-3 text-right text-red-400">
+                              {formatKm2(oblast.russian_controlled_km2)}
+                            </td>
+                            <td className="py-2 px-3 text-right text-blue-400">
+                              {formatKm2(oblast.ukrainian_controlled_km2)}
+                            </td>
+                            <td className="py-2 px-3 text-right text-amber-400">
+                              {disputed > 0 ? formatKm2(disputed) : '-'}
+                            </td>
+                            <td className="py-2 px-3 text-right text-white">
+                              {formatPercent(russianPct)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         </section>
 
@@ -397,51 +442,6 @@ function App() {
         {viewLevel === 'oblast' && todayData && (
           <section className="mb-10">
             <OblastGridView oblasts={todayData.oblasts} />
-          </section>
-        )}
-
-        {/* Oblast Breakdown (only in total view) */}
-        {viewLevel === 'total' && (
-          <section className="mb-10">
-            <div className="bg-osint-card rounded-lg p-6 border border-osint-border">
-              <h3 className="text-lg font-semibold text-white mb-4">
-                Oblast Breakdown - Russian Controlled Territory
-              </h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-osint-border">
-                      <th className="text-left py-2 px-3 text-gray-400 font-medium">Oblast</th>
-                      <th className="text-right py-2 px-3 text-gray-400 font-medium">Russian</th>
-                      <th className="text-right py-2 px-3 text-gray-400 font-medium">Ukrainian</th>
-                      <th className="text-right py-2 px-3 text-gray-400 font-medium">Disputed</th>
-                      <th className="text-right py-2 px-3 text-gray-400 font-medium">Russian %</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {activeOblasts.map((oblast) => (
-                      <tr key={oblast.oblast} className="border-b border-osint-border/50 hover:bg-white/5">
-                        <td className="py-2 px-3 text-white">
-                          {OBLAST_NAMES[oblast.oblast]}
-                        </td>
-                        <td className="py-2 px-3 text-right text-red-400">
-                          {oblast.russian_controlled_km2.toFixed(1)} km²
-                        </td>
-                        <td className="py-2 px-3 text-right text-blue-400">
-                          {oblast.ukrainian_controlled_km2.toFixed(1)} km²
-                        </td>
-                        <td className="py-2 px-3 text-right text-amber-400">
-                          {oblast.disputed_controlled_km2 > 0 ? `${oblast.disputed_controlled_km2.toFixed(1)} km²` : '-'}
-                        </td>
-                        <td className="py-2 px-3 text-right text-white">
-                          {Math.min((oblast.russian_controlled_km2 / oblast.total_area_km2) * 100, 100).toFixed(1)}%
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
           </section>
         )}
 

@@ -253,7 +253,7 @@ export function getOblastData(data: DailyTerritoryData[], oblast: OblastKey) {
       formattedDate: formatDate(day.date),
       russianControlled: oblastData?.russian_controlled_km2 || 0,
       ukrainianControlled: oblastData?.ukrainian_controlled_km2 || 0,
-      disputed: oblastData?.disputed_km2 || 0,
+      disputed: oblastData?.disputed_controlled_km2 || 0,
       totalArea: oblastData?.total_area_km2 || 0,
       russianChange: oblastData?.russian_change_km2 || 0,
       ukrainianChange: oblastData?.ukrainian_change_km2 || 0,
