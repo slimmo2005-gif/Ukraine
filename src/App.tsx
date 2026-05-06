@@ -20,6 +20,7 @@ import type { DataSource, ViewLevel, OblastKey, DailyTerritoryData } from '@/typ
  * Repo: https://github.com/slimmo2005-gif/ukraine-territory-data
  */
 const DATA_REPO_BASE_URL = 'https://raw.githubusercontent.com/slimmo2005-gif/ukraine-territory-data/master/data';
+const DATA_REPO_API_BASE_URL = 'https://api.github.com/repos/slimmo2005-gif/ukraine-territory-data/contents/data';
 
 function toDateKey(value: string): string {
   const trimmed = value.trim();
@@ -78,19 +79,60 @@ async function fetchDataForDate(dateString: string): Promise<DailyTerritoryData 
 
 async function fetchDateRange(startDate: Date, endDate: Date): Promise<DailyTerritoryData[]> {
   const data: DailyTerritoryData[] = [];
-  const current = new Date(startDate);
-  
-  while (current <= endDate) {
-    const dateStr = current.toISOString().split('T')[0];
-    const dayData = await fetchDataForDate(dateStr);
-    
+  const startKey = startDate.toISOString().split('T')[0];
+  const endKey = endDate.toISOString().split('T')[0];
+
+  let dateKeys: string[] = [];
+  const branches = ['master', 'main'];
+
+  for (const branch of branches) {
+    try {
+      const response = await fetch(`${DATA_REPO_API_BASE_URL}?ref=${branch}`, {
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        continue;
+      }
+
+      type DataDirEntry = { name: string; type: string };
+      const entries = await response.json() as DataDirEntry[];
+      dateKeys = entries
+        .filter((entry) => entry.type === 'file')
+        .map((entry) => entry.name)
+        .filter((name) => /^\d{4}-\d{2}-\d{2}\.json$/.test(name))
+        .map((name) => name.replace('.json', ''))
+        .filter((dateKey) => dateKey >= startKey && dateKey <= endKey)
+        .filter((dateKey) => !EXCLUDED_DATES.has(dateKey))
+        .sort();
+
+      if (dateKeys.length > 0) {
+        break;
+      }
+    } catch {
+      // Fall through to next branch/fallback strategy.
+    }
+  }
+
+  // Fallback to brute-force probing if directory listing fails.
+  if (dateKeys.length === 0) {
+    const current = new Date(startDate);
+    while (current <= endDate) {
+      const dateStr = current.toISOString().split('T')[0];
+      if (!EXCLUDED_DATES.has(dateStr)) {
+        dateKeys.push(dateStr);
+      }
+      current.setDate(current.getDate() + 1);
+    }
+  }
+
+  for (const dateKey of dateKeys) {
+    const dayData = await fetchDataForDate(dateKey);
     if (dayData) {
       data.push(dayData);
     }
-    
-    current.setDate(current.getDate() + 1);
   }
-  
+
   return data;
 }
 
