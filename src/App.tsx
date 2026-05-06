@@ -196,9 +196,16 @@ function App() {
   const todayData = currentData.length > 0 ? currentData[currentData.length - 1] : null;
 
   // Active oblasts for display
-  const activeOblasts = todayData?.oblasts?.filter(o => 
-    o.russian_controlled_km2 > 0 || o.disputed_controlled_km2 > 0
-  ).sort((a, b) => b.russian_controlled_km2 - a.russian_controlled_km2) || [];
+  const activeOblasts = todayData?.oblasts?.filter((o) => {
+    if (o.oblast === 'crimea') {
+      return true;
+    }
+    return o.russian_controlled_km2 > 0 || o.disputed_controlled_km2 > 0;
+  }).sort((a, b) => {
+    if (a.oblast === 'crimea') return 1;
+    if (b.oblast === 'crimea') return -1;
+    return b.russian_controlled_km2 - a.russian_controlled_km2;
+  }) || [];
 
   const formatKm2 = (value: number) => `${Math.round(value).toLocaleString()} km²`;
   const formatPercent = (value: number) => `${Math.round(value).toLocaleString()}%`;
