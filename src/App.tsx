@@ -22,8 +22,12 @@ import type { DataSource, ViewLevel, OblastKey, DailyTerritoryData } from '@/typ
 const DATA_REPO_BASE_URL = 'https://raw.githubusercontent.com/slimmo2005-gif/ukraine-territory-data/master/data';
 const EXCLUDED_DATES = new Set(['2026-05-03']);
 
+function toDateKey(value: string): string {
+  return value.split('T')[0];
+}
+
 async function fetchDataForDate(dateString: string): Promise<DailyTerritoryData | null> {
-  if (EXCLUDED_DATES.has(dateString)) {
+  if (EXCLUDED_DATES.has(toDateKey(dateString))) {
     console.log(`Skipping excluded date ${dateString}`);
     return null;
   }
@@ -40,8 +44,12 @@ async function fetchDataForDate(dateString: string): Promise<DailyTerritoryData 
       throw new Error(`HTTP ${response.status}`);
     }
     
-    const data = await response.json();
-    return data as DailyTerritoryData;
+    const data = await response.json() as DailyTerritoryData;
+    if (EXCLUDED_DATES.has(toDateKey(data.date))) {
+      console.log(`Skipping excluded payload date ${data.date}`);
+      return null;
+    }
+    return data;
   } catch (error) {
     console.error(`Failed to fetch data for ${dateString}:`, error);
     return null;
