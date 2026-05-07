@@ -19,8 +19,10 @@ import type { DataSource, ViewLevel, OblastKey, DailyTerritoryData } from '@/typ
  * Fetch territory data from GitHub repository
  * Repo: https://github.com/slimmo2005-gif/ukraine-territory-data
  */
-const DATA_REPO_BASE_URL = 'https://raw.githubusercontent.com/slimmo2005-gif/ukraine-territory-data/master/data';
-const DATA_REPO_API_BASE_URL = 'https://api.github.com/repos/slimmo2005-gif/ukraine-territory-data/contents/data';
+const DATA_REPO_RAW_BASE_URL = 'https://raw.githubusercontent.com/slimmo2005-gif/ukraine-territory-data';
+const DATA_REPO_API_BASE_URL = 'https://api.github.com/repos/slimmo2005-gif/ukraine-territory-data/contents';
+const DATA_DIRECTORIES = ['data', 'data/history'];
+const DATA_REPO_BRANCHES = ['master', 'main'];
 
 function toDateKey(value: string): string {
   const trimmed = value.trim();
@@ -45,91 +47,108 @@ function toDateKey(value: string): string {
   return trimmed;
 }
 
-async function fetchDataForDate(dateString: string): Promise<DailyTerritoryData | null> {
-  if (EXCLUDED_DATES.has(toDateKey(dateString))) {
-    console.log(`Skipping excluded date ${dateString}`);
-    return null;
-  }
-
+async function fetchDataFromUrl(url: string, dateKeyForLog: string): Promise<DailyTerritoryData | null> {
   try {
-    const url = `${DATA_REPO_BASE_URL}/${dateString}.json`;
-    const response = await fetch(url, {
-      cache: 'no-store',
-    });
-    
+    const response = await fetch(url, { cache: 'no-store' });
     if (!response.ok) {
       if (response.status === 404) {
-        console.log(`Data not yet available for ${dateString}`);
         return null;
       }
       throw new Error(`HTTP ${response.status}`);
     }
-    
     const data = await response.json() as DailyTerritoryData;
     if (EXCLUDED_DATES.has(toDateKey(data.date))) {
-      console.log(`Skipping excluded payload date ${data.date}`);
       return null;
     }
     return data;
   } catch (error) {
-    console.error(`Failed to fetch data for ${dateString}:`, error);
+    console.error(`Failed to fetch data for ${dateKeyForLog}:`, error);
     return null;
   }
 }
 
-async function fetchDateRange(startDate: Date, endDate: Date): Promise<DailyTerritoryData[]> {
-  const data: DailyTerritoryData[] = [];
-  const startKey = startDate.toISOString().split('T')[0];
-  const endKey = endDate.toISOString().split('T')[0];
+type DateKeySources = Map<string, string[]>;
 
-  let dateKeys: string[] = [];
-  const branches = ['master', 'main'];
+async function discoverDateSources(): Promise<DateKeySources> {
+  const dateToUrls: DateKeySources = new Map();
 
-  for (const branch of branches) {
-    try {
-      const response = await fetch(`${DATA_REPO_API_BASE_URL}?ref=${branch}`, {
-        cache: 'no-store',
-      });
+  for (const directory of DATA_DIRECTORIES) {
+    let entries: { name: string; type: string }[] | null = null;
+    let resolvedBranch: string | null = null;
 
-      if (!response.ok) {
-        continue;
-      }
-
-      type DataDirEntry = { name: string; type: string };
-      const entries = await response.json() as DataDirEntry[];
-      dateKeys = entries
-        .filter((entry) => entry.type === 'file')
-        .map((entry) => entry.name)
-        .filter((name) => /^\d{4}-\d{2}-\d{2}\.json$/.test(name))
-        .map((name) => name.replace('.json', ''))
-        .filter((dateKey) => dateKey >= startKey && dateKey <= endKey)
-        .filter((dateKey) => !EXCLUDED_DATES.has(dateKey))
-        .sort();
-
-      if (dateKeys.length > 0) {
+    for (const branch of DATA_REPO_BRANCHES) {
+      try {
+        const response = await fetch(`${DATA_REPO_API_BASE_URL}/${directory}?ref=${branch}`, {
+          cache: 'no-store',
+        });
+        if (!response.ok) {
+          continue;
+        }
+        entries = await response.json() as { name: string; type: string }[];
+        resolvedBranch = branch;
         break;
+      } catch {
+        // Try next branch.
       }
-    } catch {
-      // Fall through to next branch/fallback strategy.
+    }
+
+    if (!entries || !resolvedBranch) {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (entry.type !== 'file') continue;
+      const match = entry.name.match(/^(\d{4}-\d{2}-\d{2})\.json$/);
+      if (!match) continue;
+      const dateKey = match[1];
+      if (EXCLUDED_DATES.has(dateKey)) continue;
+      const url = `${DATA_REPO_RAW_BASE_URL}/${resolvedBranch}/${directory}/${entry.name}`;
+      const existing = dateToUrls.get(dateKey) || [];
+      existing.push(url);
+      dateToUrls.set(dateKey, existing);
     }
   }
 
-  // Fallback to brute-force probing if directory listing fails.
+  return dateToUrls;
+}
+
+async function fetchDateRange(startDate: Date, endDate: Date): Promise<DailyTerritoryData[]> {
+  const startKey = startDate.toISOString().split('T')[0];
+  const endKey = endDate.toISOString().split('T')[0];
+
+  const dateSources = await discoverDateSources();
+
+  let dateKeys = Array.from(dateSources.keys())
+    .filter((dateKey) => dateKey >= startKey && dateKey <= endKey)
+    .sort();
+
   if (dateKeys.length === 0) {
+    const fallback: { dateKey: string; url: string }[] = [];
     const current = new Date(startDate);
     while (current <= endDate) {
       const dateStr = current.toISOString().split('T')[0];
       if (!EXCLUDED_DATES.has(dateStr)) {
-        dateKeys.push(dateStr);
+        fallback.push({ dateKey: dateStr, url: `${DATA_REPO_RAW_BASE_URL}/master/data/${dateStr}.json` });
       }
       current.setDate(current.getDate() + 1);
     }
+    const data: DailyTerritoryData[] = [];
+    for (const { dateKey, url } of fallback) {
+      const dayData = await fetchDataFromUrl(url, dateKey);
+      if (dayData) data.push(dayData);
+    }
+    return data;
   }
 
+  const data: DailyTerritoryData[] = [];
   for (const dateKey of dateKeys) {
-    const dayData = await fetchDataForDate(dateKey);
-    if (dayData) {
-      data.push(dayData);
+    const urls = dateSources.get(dateKey) || [];
+    for (const url of urls) {
+      const dayData = await fetchDataFromUrl(url, dateKey);
+      if (dayData) {
+        data.push(dayData);
+        break;
+      }
     }
   }
 
@@ -157,6 +176,25 @@ function getDateDaysAgo(days: number): Date {
  * - Components: Modular with clear props interface
  * - Calculations: Derived from per-oblast data using useMemo
  */
+function formatLongDate(dateKey: string): string {
+  const match = dateKey.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return dateKey;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return date.toLocaleDateString('en-US', {
+    weekday: 'short',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+}
+
+function formatShortDate(dateKey: string): string {
+  const match = dateKey.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return dateKey;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 function App() {
   // State
   const [dataSource, setDataSource] = useState<DataSource>('deepstate');
@@ -165,7 +203,8 @@ function App() {
   const [historicalData, setHistoricalData] = useState<DailyTerritoryData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedMapDate, setSelectedMapDate] = useState<string>('');
+  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [showHistoryHelp, setShowHistoryHelp] = useState<boolean>(false);
 
   // Fetch data on mount
   useEffect(() => {
@@ -182,7 +221,7 @@ function App() {
         
         setHistoricalData(data);
         if (data.length > 0) {
-          setSelectedMapDate(data[data.length - 1].date);
+          setSelectedDate(data[data.length - 1].date);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load data');
@@ -199,45 +238,90 @@ function App() {
     return historicalData;
   }, [historicalData]);
 
-  // Get metrics based on view level
+  // Available date keys (sorted ascending) for navigation.
+  const availableDates = useMemo(() => currentData.map((d) => d.date), [currentData]);
+  const latestAvailableDate = availableDates[availableDates.length - 1] || '';
+  const earliestAvailableDate = availableDates[0] || '';
+
+  const selectedIndex = useMemo(() => {
+    if (!selectedDate) return -1;
+    return availableDates.indexOf(selectedDate);
+  }, [availableDates, selectedDate]);
+
+  const isLive = !!selectedDate && selectedDate === latestAvailableDate;
+
+  const selectedDateData = selectedIndex >= 0 ? currentData[selectedIndex] : null;
+  const previousDateData = selectedIndex > 0 ? currentData[selectedIndex - 1] : null;
+  const previousDateLabel = previousDateData ? formatShortDate(previousDateData.date) : null;
+
+  // Slice data up to selected date so existing metric helpers and charts respect "time travel".
+  const dataUpToSelected = useMemo(() => {
+    if (selectedIndex < 0) return [] as DailyTerritoryData[];
+    return currentData.slice(0, selectedIndex + 1);
+  }, [currentData, selectedIndex]);
+
+  const goToPreviousAvailableDate = () => {
+    if (selectedIndex > 0) setSelectedDate(availableDates[selectedIndex - 1]);
+  };
+  const goToNextAvailableDate = () => {
+    if (selectedIndex >= 0 && selectedIndex < availableDates.length - 1) {
+      setSelectedDate(availableDates[selectedIndex + 1]);
+    }
+  };
+  const goToLatest = () => {
+    if (latestAvailableDate) setSelectedDate(latestAvailableDate);
+  };
+  const handleDirectDateChange = (newDate: string) => {
+    if (!newDate) return;
+    if (availableDates.includes(newDate)) {
+      setSelectedDate(newDate);
+      return;
+    }
+    // Snap to nearest available date (prefer earlier).
+    const earlier = [...availableDates].reverse().find((d) => d <= newDate);
+    const later = availableDates.find((d) => d >= newDate);
+    setSelectedDate(earlier || later || latestAvailableDate);
+  };
+
+  // Get metrics based on view level - operates on data up to selected date.
   const metrics = useMemo(() => {
     if (viewLevel === 'total') {
-      const today = getTodayMetrics(currentData);
-      const week7 = get7DaySummary(currentData);
-      const current = getCurrentControlTotals(currentData);
+      const today = getTodayMetrics(dataUpToSelected);
+      const week7 = get7DaySummary(dataUpToSelected);
+      const current = getCurrentControlTotals(dataUpToSelected);
       return { today, week7, current, isOblast: false };
     } else {
       // Oblast-level metrics
-      const oblastData = getOblastData(currentData, selectedOblast);
+      const oblastData = getOblastData(dataUpToSelected, selectedOblast);
       const today = oblastData[oblastData.length - 1];
       
       return {
         today: {
-          russianControlled: today.russianControlled,
-          ukrainianControlled: today.ukrainianControlled,
-          disputed: today.disputed,
-          russianChange: today.russianChange,
-          ukrainianChange: today.ukrainianChange,
-          disputedChange: today.disputedChange,
+          russianControlled: today?.russianControlled || 0,
+          ukrainianControlled: today?.ukrainianControlled || 0,
+          disputed: today?.disputed || 0,
+          russianChange: today?.russianChange || 0,
+          ukrainianChange: today?.ukrainianChange || 0,
+          disputedChange: today?.disputedChange || 0,
         },
         week7: {
-          russianAvg: 0, // Calculated differently for oblast
+          russianAvg: 0,
           ukrainianAvg: 0,
-          disputedAvg: today.disputed,
+          disputedAvg: today?.disputed || 0,
         },
         current: {
-          russianControlled: today.russianControlled,
-          ukrainianControlled: today.ukrainianControlled,
-          disputed: today.disputed,
-          totalArea: today.totalArea,
+          russianControlled: today?.russianControlled || 0,
+          ukrainianControlled: today?.ukrainianControlled || 0,
+          disputed: today?.disputed || 0,
+          totalArea: today?.totalArea || 0,
         },
         isOblast: true,
       };
     }
-  }, [currentData, viewLevel, selectedOblast]);
+  }, [dataUpToSelected, viewLevel, selectedOblast]);
 
-  // Current day's data for oblast breakdown (only if data exists)
-  const todayData = currentData.length > 0 ? currentData[currentData.length - 1] : null;
+  // Use the selected date snapshot for the per-date breakdown panels.
+  const todayData = selectedDateData;
 
   // Active oblasts for display
   const activeOblasts = useMemo(() => {
@@ -384,7 +468,7 @@ function App() {
         {currentData.length > 0 && (
           <>
         {/* Controls Bar */}
-        <section className="mb-8">
+        <section className="mb-6">
           <div className="bg-osint-card rounded-lg p-4 border border-osint-border">
             <div className="flex flex-col lg:flex-row gap-6 items-start lg:items-center justify-between">
               <DataSourceSelector
@@ -401,6 +485,91 @@ function App() {
           </div>
         </section>
 
+        {/* Date Navigator */}
+        <section className="mb-8">
+          <div className="bg-osint-card rounded-lg p-4 border border-osint-border">
+            <div className="flex flex-col lg:flex-row gap-4 lg:items-center lg:justify-between">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs uppercase tracking-wide text-gray-500">Viewing date</span>
+                <span className="text-sm font-semibold text-white">
+                  {selectedDate ? formatLongDate(selectedDate) : 'Pick a date'}
+                </span>
+                <span
+                  className={`px-2 py-0.5 rounded text-xs font-medium ${
+                    isLive
+                      ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                      : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                  }`}
+                  title={isLive ? 'Showing the latest available snapshot' : 'Showing a historical snapshot'}
+                >
+                  {isLive ? 'LIVE' : 'HISTORICAL'}
+                </span>
+                {!isLive && previousDateLabel && (
+                  <span className="text-xs text-gray-500">
+                    Compared with previous available date: {previousDateLabel}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={goToPreviousAvailableDate}
+                  disabled={selectedIndex <= 0}
+                  className="px-3 py-1.5 text-xs rounded border border-osint-border bg-osint-dark text-gray-200 hover:bg-osint-card disabled:opacity-40 disabled:cursor-not-allowed"
+                  aria-label="Previous available date"
+                  title="Previous available date"
+                >
+                  &larr; Prev
+                </button>
+                <input
+                  type="date"
+                  value={selectedDate}
+                  min={earliestAvailableDate}
+                  max={latestAvailableDate}
+                  onChange={(e) => handleDirectDateChange(e.target.value)}
+                  className="px-2 py-1.5 text-xs rounded border border-osint-border bg-osint-dark text-gray-100"
+                  aria-label="Pick any date"
+                  title="Pick any date (will snap to the nearest available snapshot)"
+                />
+                <button
+                  type="button"
+                  onClick={goToNextAvailableDate}
+                  disabled={selectedIndex < 0 || selectedIndex >= availableDates.length - 1}
+                  className="px-3 py-1.5 text-xs rounded border border-osint-border bg-osint-dark text-gray-200 hover:bg-osint-card disabled:opacity-40 disabled:cursor-not-allowed"
+                  aria-label="Next available date"
+                  title="Next available date"
+                >
+                  Next &rarr;
+                </button>
+                <button
+                  type="button"
+                  onClick={goToLatest}
+                  disabled={isLive}
+                  className="px-3 py-1.5 text-xs rounded border border-green-500/40 bg-green-500/10 text-green-300 hover:bg-green-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Jump back to the latest available snapshot"
+                >
+                  Jump to latest
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowHistoryHelp(true)}
+                  className="px-3 py-1.5 text-xs rounded border border-osint-border bg-osint-dark text-gray-200 hover:bg-osint-card"
+                  title="How history works"
+                  aria-label="How history works"
+                >
+                  ?
+                </button>
+              </div>
+            </div>
+            {!selectedDateData && selectedDate && (
+              <p className="mt-3 text-xs text-amber-300">
+                No archived snapshot is available for this date. Try a nearby date or use Prev/Next.
+              </p>
+            )}
+          </div>
+        </section>
+
         {/* Metrics + Oblast Overview */}
         <section className="mb-10">
           <div className="flex items-center gap-4 mb-6">
@@ -408,11 +577,11 @@ function App() {
               {viewLevel === 'total' ? 'Ukraine Territory Control' : `${OBLAST_NAMES[selectedOblast]} Oblast Control`}
             </h2>
             <span className={`px-2 py-1 rounded text-xs font-medium ${
-              currentData.length > 0 
-                ? 'bg-green-500/20 text-green-400 border border-green-500/30' 
-                : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+              isLive
+                ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
             }`}>
-              {currentData.length > 0 ? 'LIVE DATA' : 'NO DATA'}
+              {isLive ? 'LIVE DATA' : `HISTORICAL: ${selectedDate ? formatShortDate(selectedDate) : '—'}`}
             </span>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -426,6 +595,12 @@ function App() {
                 const ukrainianTotal = totalArea - metrics.current.russianControlled - metrics.current.disputed;
                 const netChange = metrics.today.russianChange - metrics.today.ukrainianChange;
 
+                const deltaSuffix = isLive
+                  ? 'vs previous day'
+                  : previousDateLabel
+                    ? `vs ${previousDateLabel}`
+                    : 'vs previous available date';
+
                 return (
                   <div className="space-y-3">
                     <div className="flex justify-between">
@@ -433,7 +608,7 @@ function App() {
                       <div className="text-right">
                         <span className="text-red-400 font-medium">{formatPercent(russianPct)}</span>
                         <span className="text-gray-500 text-sm ml-2">({formatKm2(metrics.current.russianControlled)})</span>
-                        <p className="text-xs text-red-400/80">{formatDeltaKm2(metrics.today.russianChange)} today</p>
+                        <p className="text-xs text-red-400/80">{formatDeltaKm2(metrics.today.russianChange)} {deltaSuffix}</p>
                       </div>
                     </div>
                     <div className="flex justify-between">
@@ -441,7 +616,7 @@ function App() {
                       <div className="text-right">
                         <span className="text-blue-400 font-medium">{formatPercent(ukrainianPct)}</span>
                         <span className="text-gray-500 text-sm ml-2">({formatKm2(ukrainianTotal)})</span>
-                        <p className="text-xs text-blue-400/80">{formatDeltaKm2(metrics.today.ukrainianChange)} today</p>
+                        <p className="text-xs text-blue-400/80">{formatDeltaKm2(metrics.today.ukrainianChange)} {deltaSuffix}</p>
                       </div>
                     </div>
                     {(metrics.current.disputed > 0 || disputedPct > 0.1) && (
@@ -450,7 +625,7 @@ function App() {
                         <div className="text-right">
                           <span className="text-amber-400 font-medium">{formatPercent(disputedPct)}</span>
                           <span className="text-gray-500 text-sm ml-2">({formatKm2(metrics.current.disputed)})</span>
-                          <p className="text-xs text-amber-400/80">{formatDeltaKm2(metrics.today.disputedChange)} today</p>
+                          <p className="text-xs text-amber-400/80">{formatDeltaKm2(metrics.today.disputedChange)} {deltaSuffix}</p>
                         </div>
                       </div>
                     )}
@@ -529,12 +704,12 @@ function App() {
         <section className="mb-10">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <ChartSection
-              data={currentData}
+              data={dataUpToSelected}
               title="Territory Control Over Time"
               chartType="control"
             />
             <ChartSection
-              data={currentData}
+              data={dataUpToSelected}
               title="Daily Changes"
               chartType="change"
             />
@@ -544,13 +719,16 @@ function App() {
         {/* Map Section */}
         <section className="mb-10">
           <div className="bg-osint-card rounded-lg p-6 border border-osint-border">
-            <h3 className="text-lg font-semibold text-white mb-4">
-              Frontline Map
-            </h3>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+              <h3 className="text-lg font-semibold text-white">Frontline Map</h3>
+              <span className="text-xs text-gray-500">
+                Map slider mirrors the Date Navigator above. Slide to time-travel.
+              </span>
+            </div>
             <TerritoryMap
               data={currentData}
-              selectedDate={selectedMapDate}
-              onDateChange={setSelectedMapDate}
+              selectedDate={selectedDate}
+              onDateChange={setSelectedDate}
             />
           </div>
         </section>
@@ -577,7 +755,9 @@ function App() {
                 Data Source: {dataSource === 'deepstate' ? 'DeepStateMap' : dataSource === 'isw' ? 'Institute for the Study of War' : 'Combined (Averaged)'}
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                Last updated: {todayData ? new Date(todayData.last_updated).toLocaleString() : 'N/A'} • {currentData.length} days loaded
+                Snapshot date: {selectedDate ? formatShortDate(selectedDate) : 'N/A'}
+                {todayData ? ` • Source updated: ${new Date(todayData.last_updated).toLocaleString()}` : ''}
+                {' '}• {currentData.length} days loaded
               </p>
               <p className="text-xs text-gray-600 mt-1">
                 <a 
@@ -603,6 +783,43 @@ function App() {
           </>
         )}
       </main>
+
+      {showHistoryHelp && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4"
+          onClick={() => setShowHistoryHelp(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="history-help-title"
+        >
+          <div
+            className="max-w-md w-full bg-osint-card border border-osint-border rounded-lg shadow-xl p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between mb-3">
+              <h4 id="history-help-title" className="text-base font-semibold text-white">
+                How history works
+              </h4>
+              <button
+                type="button"
+                className="text-gray-400 hover:text-white text-sm"
+                onClick={() => setShowHistoryHelp(false)}
+                aria-label="Close how history works"
+              >
+                Close
+              </button>
+            </div>
+            <ul className="text-sm text-gray-300 space-y-2 list-disc pl-5">
+              <li>Source: DeepStateMap snapshots.</li>
+              <li>Historical files are preprocessed for consistency.</li>
+              <li>Some dates are missing because no source snapshot exists for that day.</li>
+              <li>Values are estimates from map geometry — not official government accounting.</li>
+              <li>Use Prev / Next to step between available dates, or pick any date and we&apos;ll snap to the nearest snapshot.</li>
+              <li>Click &quot;Jump to latest&quot; to return to the live view.</li>
+            </ul>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
