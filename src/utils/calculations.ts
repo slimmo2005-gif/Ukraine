@@ -1,4 +1,12 @@
-import type { DailyTerritoryData, ChartDataPoint, AggregatedData, TimeRange, OblastKey, ViewLevel } from '@/types';
+import type {
+  DailyTerritoryData,
+  ChartDataPoint,
+  AggregatedData,
+  TimeRange,
+  OblastKey,
+  OblastControl,
+  ViewLevel,
+} from '@/types';
 
 function getDerivedTotalChanges(data: DailyTerritoryData[], index: number) {
   const day = data[index];
@@ -827,6 +835,256 @@ export interface NetMovementBarRow {
   fullNet: number | null;
   pct: number | null;
   hasData: boolean;
+  /** Extra context in tooltips (e.g. linear interpolation to viewed date). */
+  tooltipNote?: string;
+}
+
+function utcDayNumberFromDateKey(dateKey: string): number {
+  const m = dateKey.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) {
+    return Date.parse(dateKey) / 86400000;
+  }
+  return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / 86400000;
+}
+
+function lerpNum(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+/**
+ * Linear blend / extrapolate of territory state between two snapshots in time.
+ * `t` is 0 at `older` and 1 at `newer`; values outside [0,1] extrapolate.
+ */
+export function interpolateTerritoryBetween(
+  older: DailyTerritoryData,
+  newer: DailyTerritoryData,
+  t: number,
+  targetDate: string,
+): DailyTerritoryData {
+  const keys = new Set<OblastKey>();
+  for (const o of older.oblasts) {
+    keys.add(o.oblast);
+  }
+  for (const o of newer.oblasts) {
+    keys.add(o.oblast);
+  }
+
+  const oblasts: OblastControl[] = [];
+  for (const oblast of keys) {
+    const a = older.oblasts.find((o) => o.oblast === oblast);
+    const b = newer.oblasts.find((o) => o.oblast === oblast);
+    const r0 = a?.russian_controlled_km2 ?? 0;
+    const r1 = b?.russian_controlled_km2 ?? 0;
+    const u0 = a?.ukrainian_controlled_km2 ?? 0;
+    const u1 = b?.ukrainian_controlled_km2 ?? 0;
+    const d0 = a?.disputed_controlled_km2 ?? 0;
+    const d1 = b?.disputed_controlled_km2 ?? 0;
+    const ta0 = a?.total_area_km2 ?? 0;
+    const ta1 = b?.total_area_km2 ?? 0;
+    oblasts.push({
+      oblast,
+      russian_controlled_km2: lerpNum(r0, r1, t),
+      ukrainian_controlled_km2: lerpNum(u0, u1, t),
+      disputed_controlled_km2: lerpNum(d0, d1, t),
+      total_area_km2: lerpNum(ta0, ta1, t),
+    });
+  }
+
+  const tr0 = older.total_russian_controlled_km2;
+  const tr1 = newer.total_russian_controlled_km2;
+  const tu0 = older.total_ukrainian_controlled_km2;
+  const tu1 = newer.total_ukrainian_controlled_km2;
+  const td0 = older.total_disputed_km2;
+  const td1 = newer.total_disputed_km2;
+  const ta0 = older.total_area_km2;
+  const ta1 = newer.total_area_km2;
+
+  return {
+    ...newer,
+    date: targetDate,
+    granularity: newer.granularity,
+    total_russian_controlled_km2: lerpNum(tr0, tr1, t),
+    total_ukrainian_controlled_km2: lerpNum(tu0, tu1, t),
+    total_disputed_km2: lerpNum(td0, td1, t),
+    total_area_km2: lerpNum(ta0, ta1, t),
+    oblasts,
+    russian_change_km2: 0,
+    ukrainian_change_km2: 0,
+    disputed_change_km2: 0,
+    notes: 'interpolated',
+  };
+}
+
+/**
+ * State at `targetDate` along the weekly anchor timeline: exact anchor match, lerp between
+ * surrounding anchors, or linear extrapolation using the two nearest anchors (requires ≥2 points).
+ */
+export function interpolateTerritoryAtDate(
+  weeklySortedAsc: DailyTerritoryData[],
+  targetDate: string,
+): DailyTerritoryData | null {
+  const sorted = [...weeklySortedAsc].sort((a, b) => a.date.localeCompare(b.date));
+  if (sorted.length === 0) {
+    return null;
+  }
+  if (sorted.length === 1) {
+    const only = sorted[0];
+    return { ...only, date: targetDate };
+  }
+
+  const tDay = utcDayNumberFromDateKey(targetDate);
+
+  for (const row of sorted) {
+    if (row.date === targetDate) {
+      return { ...row };
+    }
+  }
+
+  let lo = -1;
+  for (let i = 0; i < sorted.length; i++) {
+    if (sorted[i].date <= targetDate) {
+      lo = i;
+    }
+  }
+
+  if (lo < 0) {
+    const a = sorted[0];
+    const b = sorted[1];
+    const t0 = utcDayNumberFromDateKey(a.date);
+    const t1 = utcDayNumberFromDateKey(b.date);
+    const span = t1 - t0 || 1;
+    const t = (tDay - t0) / span;
+    return interpolateTerritoryBetween(a, b, t, targetDate);
+  }
+
+  if (lo === sorted.length - 1) {
+    const b = sorted[lo];
+    const a = sorted[lo - 1];
+    const t0 = utcDayNumberFromDateKey(a.date);
+    const t1 = utcDayNumberFromDateKey(b.date);
+    const span = t1 - t0 || 1;
+    const t = (tDay - t0) / span;
+    return interpolateTerritoryBetween(a, b, t, targetDate);
+  }
+
+  const a = sorted[lo];
+  const b = sorted[lo + 1];
+  const t0 = utcDayNumberFromDateKey(a.date);
+  const t1 = utcDayNumberFromDateKey(b.date);
+  const span = t1 - t0 || 1;
+  const t = (tDay - t0) / span;
+  return interpolateTerritoryBetween(a, b, t, targetDate);
+}
+
+export interface WeeklyNetMovementSegment {
+  start: DailyTerritoryData;
+  end: DailyTerritoryData;
+  periodLabel: string;
+  interpolatedEnd: boolean;
+}
+
+/** Build weekly WoW net segments; last segment may end at linearly interpolated/extrapolated state for `selectedDate`. */
+export function buildWeeklyHistoryNetSegments(
+  weeklySortedAsc: DailyTerritoryData[],
+  selectedDate: string,
+): WeeklyNetMovementSegment[] {
+  const sorted = [...weeklySortedAsc].sort((a, b) => a.date.localeCompare(b.date));
+  if (sorted.length < 2) {
+    return [];
+  }
+
+  const endState = interpolateTerritoryAtDate(sorted, selectedDate);
+  if (!endState) {
+    return [];
+  }
+
+  const segments: WeeklyNetMovementSegment[] = [];
+  const firstDate = sorted[0].date;
+
+  if (selectedDate < firstDate) {
+    segments.push({
+      start: endState,
+      end: sorted[0],
+      periodLabel: `${formatDate(selectedDate)}→${formatDate(sorted[0].date)}`,
+      interpolatedEnd: true,
+    });
+    return segments;
+  }
+
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i].date <= selectedDate) {
+      segments.push({
+        start: sorted[i - 1],
+        end: sorted[i],
+        periodLabel: formatDate(sorted[i].date),
+        interpolatedEnd: false,
+      });
+    }
+  }
+
+  let lastAnchor = sorted[0];
+  for (const w of sorted) {
+    if (w.date <= selectedDate) {
+      lastAnchor = w;
+    }
+  }
+
+  const onAnchor = lastAnchor.date === selectedDate;
+  if (!onAnchor) {
+    segments.push({
+      start: lastAnchor,
+      end: endState,
+      periodLabel: `→ ${formatDate(selectedDate)}`,
+      interpolatedEnd: true,
+    });
+  }
+
+  return segments;
+}
+
+function netMovementNationalOrOblast(
+  startDay: DailyTerritoryData,
+  endDay: DailyTerritoryData,
+  oblast?: OblastKey,
+): number {
+  return oblast ? netMovementOblast(startDay, endDay, oblast) : netMovementNational(startDay, endDay);
+}
+
+/**
+ * Net-movement bars from `data/history/weekly` anchors (WoW), optionally ending with a segment
+ * to the viewed date via linear interpolation/extrapolation between nearest anchors.
+ */
+export function getWeeklyHistoryNetMovementRows(
+  weeklySortedAsc: DailyTerritoryData[],
+  selectedDate: string,
+  oblast?: OblastKey,
+  maxBars = 6,
+): NetMovementBarRow[] {
+  const segments = buildWeeklyHistoryNetSegments(weeklySortedAsc, selectedDate);
+  if (segments.length === 0) {
+    return [];
+  }
+
+  const lastBars = segments.slice(-maxBars);
+  const out: NetMovementBarRow[] = [];
+
+  for (const seg of lastBars) {
+    const netKm2 = netMovementNationalOrOblast(seg.start, seg.end, oblast);
+    const totalUkraine = Math.max(seg.end.total_area_km2, 1);
+    const pct = (netKm2 / totalUkraine) * 100;
+    out.push({
+      periodLabel: seg.periodLabel,
+      netKm2,
+      fullNet: netKm2,
+      pct,
+      hasData: true,
+      tooltipNote: seg.interpolatedEnd
+        ? 'Linear blend or extrapolation along time between the two nearest weekly JSON anchors (state at the viewed date is estimated, not a file row).'
+        : undefined,
+    });
+  }
+
+  return out;
 }
 
 function netStepNational(data: DailyTerritoryData[], index: number): number {
@@ -854,12 +1112,14 @@ function formatWeekAxisLabel(weekKey: string): string {
 
 /**
  * Bars for the territory net-movement chart: Δ Russian − Δ Ukrainian per step (national or oblast).
- * Day: last 14 snapshots. Week: last 6 ISO weeks in data. Month: six completed calendar months.
+ * Day: last 14 snapshots. Week: weekly JSON history (WoW) when provided, else last 6 ISO weeks in daily data.
+ * Month: six completed calendar months.
  */
 export function getNetMovementChartRows(
   data: DailyTerritoryData[],
   period: OblastRussianChangePeriod,
   oblast?: OblastKey,
+  options?: { weeklySnapshots?: DailyTerritoryData[]; selectedDate?: string },
 ): NetMovementBarRow[] {
   if (data.length < 1) {
     return [];
@@ -887,6 +1147,15 @@ export function getNetMovementChartRows(
   }
 
   if (period === 'week') {
+    const weekly = options?.weeklySnapshots;
+    if (weekly && weekly.length >= 2) {
+      const sel = options?.selectedDate ?? data[data.length - 1]?.date ?? '';
+      const fromRepo = getWeeklyHistoryNetMovementRows(weekly, sel, oblast, 6);
+      if (fromRepo.length > 0) {
+        return fromRepo;
+      }
+    }
+
     const weekKeySet = new Set<string>();
     for (const d of data) {
       weekKeySet.add(weekBucketKeyFromDateString(d.date));

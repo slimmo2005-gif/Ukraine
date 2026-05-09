@@ -448,8 +448,9 @@ function App() {
         dataUpToSelected,
         netMovementPeriod,
         viewLevel === 'oblast' ? selectedOblast : undefined,
+        { weeklySnapshots: weeklySnapshotData, selectedDate },
       ),
-    [dataUpToSelected, netMovementPeriod, viewLevel, selectedOblast],
+    [dataUpToSelected, netMovementPeriod, viewLevel, selectedOblast, weeklySnapshotData, selectedDate],
   );
 
   const netMovementYDomain = useMemo((): [number, number] => {
@@ -829,7 +830,9 @@ function App() {
                           {netMovementPeriod === 'day' &&
                             ' Day: last up to 14 snapshots, each vs previous.'}
                           {netMovementPeriod === 'week' &&
-                            ' Week: last 6 ISO weeks with data, first vs last snapshot in each week.'}
+                            (weeklySnapshotData.length >= 2
+                              ? ' Week: last up to 6 moves from weekly history (WoW between anchors); tail bar can end at your viewed date via linear interpolation between anchors (or extrapolation past the latest anchor).'
+                              : ' Week: last 6 ISO weeks with data, first vs last snapshot in each week.')}
                           {netMovementPeriod === 'month' &&
                             ' Month: six completed calendar months, first vs last snapshot in each month.'}
                         </p>
@@ -876,12 +879,17 @@ function App() {
                                   }
                                   const v = p.fullNet;
                                   return (
-                                    <div className="bg-osint-card border border-osint-border p-2 rounded-lg shadow-xl text-xs">
+                                    <div className="bg-osint-card border border-osint-border p-2 rounded-lg shadow-xl text-xs max-w-xs">
                                       <p className="text-gray-200 font-medium">
                                         {v >= 0 ? '+' : ''}
                                         {Math.round(v).toLocaleString()} km²
                                       </p>
                                       <p className="text-gray-400 mt-1">{(p.pct ?? 0).toFixed(2)}% of Ukraine</p>
+                                      {p.tooltipNote ? (
+                                        <p className="text-gray-500 mt-2 leading-snug border-t border-osint-border pt-2">
+                                          {p.tooltipNote}
+                                        </p>
+                                      ) : null}
                                     </div>
                                   );
                                 }}
