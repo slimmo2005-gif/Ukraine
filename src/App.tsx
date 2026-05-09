@@ -656,10 +656,10 @@ function App() {
                     <thead>
                       <tr className="border-b border-osint-border">
                         <th className="text-left py-2 px-3 text-gray-400 font-medium">Oblast</th>
-                        <th className="text-right py-2 px-3 text-gray-400 font-medium">Russian</th>
-                        <th className="text-right py-2 px-3 text-gray-400 font-medium">Ukrainian</th>
-                        <th className="text-right py-2 px-3 text-gray-400 font-medium">Disputed</th>
-                        <th className="text-right py-2 px-3 text-gray-400 font-medium">Total</th>
+                        <th className="text-right py-2 px-3 text-gray-400 font-medium">Russian (km²)</th>
+                        <th className="text-right py-2 px-3 text-gray-400 font-medium">Ukrainian (km²)</th>
+                        <th className="text-right py-2 px-3 text-gray-400 font-medium">Disputed (km²)</th>
+                        <th className="text-right py-2 px-3 text-gray-400 font-medium">Total (km²)</th>
                         <th className="text-right py-2 px-3 text-gray-400 font-medium">Russian %</th>
                       </tr>
                     </thead>
@@ -677,16 +677,16 @@ function App() {
                               {OBLAST_NAMES[oblast.oblast] || oblast.oblast}
                             </td>
                             <td className="py-2 px-3 text-right text-red-400">
-                              {formatKm2(oblast.russian_controlled_km2)}
+                              {Math.round(oblast.russian_controlled_km2).toLocaleString()}
                             </td>
                             <td className="py-2 px-3 text-right text-blue-400">
-                              {formatKm2(oblast.ukrainian_controlled_km2)}
+                              {Math.round(oblast.ukrainian_controlled_km2).toLocaleString()}
                             </td>
                             <td className="py-2 px-3 text-right text-amber-400">
-                              {disputed > 0 ? formatKm2(disputed) : '-'}
+                              {disputed > 0 ? Math.round(disputed).toLocaleString() : '-'}
                             </td>
                             <td className="py-2 px-3 text-right text-gray-300">
-                              {formatKm2(oblastTotal)}
+                              {Math.round(oblastTotal).toLocaleString()}
                             </td>
                             <td className="py-2 px-3 text-right text-white">
                               {formatPercent(russianPct)}
