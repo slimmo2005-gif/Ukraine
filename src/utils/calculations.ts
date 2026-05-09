@@ -529,6 +529,121 @@ export function getLastSixCompletedMonthsNetMovement(
   return rows;
 }
 
+export interface NetMovementBarRow {
+  periodLabel: string;
+  netKm2: number;
+  fullNet: number | null;
+  pct: number | null;
+  hasData: boolean;
+}
+
+function netStepNational(data: DailyTerritoryData[], index: number): number {
+  const d = getDerivedTotalChanges(data, index);
+  return d.russianChange - d.ukrainianChange;
+}
+
+function netStepOblast(data: DailyTerritoryData[], index: number, oblast: OblastKey): number {
+  const d = getDerivedOblastChanges(data, index, oblast);
+  return d.russianChange - d.ukrainianChange;
+}
+
+function weekBucketKeyFromDateString(dateStr: string): string {
+  const d = parseLocalDateKey(dateStr);
+  const y = d.getFullYear();
+  const w = getWeekNumber(d);
+  return `${y}-W${String(w).padStart(2, '0')}`;
+}
+
+function formatWeekAxisLabel(weekKey: string): string {
+  const m = weekKey.match(/^(\d{4})-W(\d{2})$/);
+  if (!m) return weekKey;
+  return `W${Number(m[2])} '${m[1].slice(-2)}`;
+}
+
+/**
+ * Bars for the territory net-movement chart: Δ Russian − Δ Ukrainian per step (national or oblast).
+ * Day: last 14 snapshots. Week: last 6 ISO weeks in data. Month: six completed calendar months.
+ */
+export function getNetMovementChartRows(
+  data: DailyTerritoryData[],
+  period: OblastRussianChangePeriod,
+  oblast?: OblastKey,
+): NetMovementBarRow[] {
+  if (data.length < 1) {
+    return [];
+  }
+
+  if (period === 'day') {
+    const maxBars = 14;
+    const n = data.length;
+    const start = Math.max(0, n - maxBars);
+    const out: NetMovementBarRow[] = [];
+    for (let i = start; i < n; i++) {
+      const day = data[i];
+      const net = oblast ? netStepOblast(data, i, oblast) : netStepNational(data, i);
+      const totalUkraine = Math.max(day.total_area_km2, 1);
+      const pct = (net / totalUkraine) * 100;
+      out.push({
+        periodLabel: formatDate(day.date),
+        netKm2: net,
+        fullNet: net,
+        pct,
+        hasData: true,
+      });
+    }
+    return out;
+  }
+
+  if (period === 'week') {
+    const weekKeySet = new Set<string>();
+    for (const d of data) {
+      weekKeySet.add(weekBucketKeyFromDateString(d.date));
+    }
+    const weekKeys = [...weekKeySet].sort();
+    const lastWeeks = weekKeys.slice(-6);
+    const out: NetMovementBarRow[] = [];
+    for (const wk of lastWeeks) {
+      const inWeek = data.filter((d) => weekBucketKeyFromDateString(d.date) === wk);
+      if (inWeek.length >= 2) {
+        const a = inWeek[0];
+        const b = inWeek[inWeek.length - 1];
+        const netKm2 = oblast ? netMovementOblast(a, b, oblast) : netMovementNational(a, b);
+        const totalUkraine = Math.max(b.total_area_km2, 1);
+        out.push({
+          periodLabel: formatWeekAxisLabel(wk),
+          netKm2: netKm2,
+          fullNet: netKm2,
+          pct: (netKm2 / totalUkraine) * 100,
+          hasData: true,
+        });
+      } else {
+        out.push({
+          periodLabel: formatWeekAxisLabel(wk),
+          netKm2: 0,
+          fullNet: null,
+          pct: null,
+          hasData: false,
+        });
+      }
+    }
+    return out;
+  }
+
+  const months = getLastSixCompletedMonthsNetMovement(data, oblast);
+  return months.map((row) => {
+    const [yy, mm] = row.monthKey.split('-');
+    const periodLabel = `${SHORT_MONTH[parseInt(mm, 10) - 1]}-${yy.slice(-2)}`;
+    const canPlot = row.snapshotCount >= 2;
+    return {
+      periodLabel,
+      netKm2: canPlot ? row.netKm2 : 0,
+      fullNet: canPlot ? row.netKm2 : null,
+      pct: canPlot ? row.netPctOfTotalUkraine : null,
+      hasData: canPlot,
+    };
+  });
+}
+
 /**
  * Get data for a specific oblast over time
  */

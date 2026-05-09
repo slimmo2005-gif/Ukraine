@@ -22,8 +22,9 @@ import {
   get7DaySummary, 
   getCurrentControlTotals,
   getOblastData,
-  getLastSixCompletedMonthsNetMovement,
+  getNetMovementChartRows,
   getOblastRussianChangeKm2,
+  type NetMovementBarRow,
   type OblastRussianChangePeriod,
 } from '@/utils/calculations';
 import type { DataSource, ViewLevel, OblastKey, DailyTerritoryData } from '@/types';
@@ -208,18 +209,8 @@ function formatShortDate(dateKey: string): string {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-const MONTH_AXIS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-type MonthlyChartRow = {
-  monthShort: string;
-  netKm2: number;
-  fullNet: number | null;
-  pct: number | null;
-  hasData: boolean;
-};
-
 /** Recharts `<Bar label={…} />` passes geometry + payload per cell; show signed km² only (no %). */
-function renderMonthlyBarValueLabel(rows: MonthlyChartRow[]) {
+function renderNetMovementBarValueLabel(rows: NetMovementBarRow[]) {
   return (raw: unknown) => {
     const p = raw as {
       x?: number;
@@ -227,13 +218,13 @@ function renderMonthlyBarValueLabel(rows: MonthlyChartRow[]) {
       width?: number;
       height?: number;
       index?: number;
-      payload?: MonthlyChartRow;
+      payload?: NetMovementBarRow;
     };
     const x = Number(p.x ?? 0);
     const y = Number(p.y ?? 0);
     const width = Number(p.width ?? 0);
     const height = Number(p.height ?? 0);
-    const payload = p.payload ?? (typeof p.index === 'number' ? rows[p.index] : undefined);
+    const payload = (p.payload as NetMovementBarRow | undefined) ?? (typeof p.index === 'number' ? rows[p.index] : undefined);
     const cx = x + width / 2;
 
     if (!payload?.hasData || payload.fullNet === null) {
@@ -270,6 +261,7 @@ function App() {
   const [showHistoryHelp, setShowHistoryHelp] = useState<boolean>(false);
   const [oblastRussianChangePeriod, setOblastRussianChangePeriod] =
     useState<OblastRussianChangePeriod>('day');
+  const [netMovementPeriod, setNetMovementPeriod] = useState<OblastRussianChangePeriod>('month');
 
   // Fetch data on mount
   useEffect(() => {
@@ -385,14 +377,25 @@ function App() {
     }
   }, [dataUpToSelected, viewLevel, selectedOblast]);
 
-  const completedMonthNets = useMemo(
+  const netMovementChartRows = useMemo(
     () =>
-      getLastSixCompletedMonthsNetMovement(
+      getNetMovementChartRows(
         dataUpToSelected,
+        netMovementPeriod,
         viewLevel === 'oblast' ? selectedOblast : undefined,
       ),
-    [dataUpToSelected, viewLevel, selectedOblast],
+    [dataUpToSelected, netMovementPeriod, viewLevel, selectedOblast],
   );
+
+  const netMovementYDomain = useMemo((): [number, number] => {
+    const nets = netMovementChartRows
+      .filter((r) => r.hasData && r.fullNet !== null)
+      .map((r) => Math.abs(r.fullNet as number));
+    const maxAbs = nets.length > 0 ? Math.max(...nets, 50) : 50;
+    const pad = Math.ceil(maxAbs * 0.12);
+    const yMax = maxAbs + pad;
+    return [-yMax, yMax];
+  }, [netMovementChartRows]);
 
   // Use the selected date snapshot for the per-date breakdown panels.
   const todayData = selectedDateData;
@@ -709,99 +712,117 @@ function App() {
                         <span className="text-white font-bold">{formatKm2(totalArea)}</span>
                       </div>
                       <div className="mt-3">
-                        <p className="text-gray-400 font-medium mb-0.5">Monthly net movement</p>
-                        <p className="text-xs text-gray-500 mb-2 leading-snug">
-                          Six completed months · Positive = net toward Russian control (Ukraine → Russia).
-                          Bar = first vs last snapshot in the month. % = share of total Ukraine (last snapshot).
-                        </p>
-                        {(() => {
-                          const RUSSIAN_BAR = '#ef4444';
-                          const UKRAINIAN_BAR = '#3b82f6';
-                          const chartRows = completedMonthNets.map((row) => {
-                            const canPlot = row.snapshotCount >= 2;
-                            const [yy, mm] = row.monthKey.split('-');
-                            const monthShort = `${MONTH_AXIS_SHORT[parseInt(mm, 10) - 1]}-${yy.slice(-2)}`;
-                            return {
-                              monthShort,
-                              netKm2: canPlot ? row.netKm2 : 0,
-                              fullNet: canPlot ? row.netKm2 : null,
-                              pct: canPlot ? row.netPctOfTotalUkraine : null,
-                              hasData: canPlot,
-                            };
-                          });
-                          const nets = chartRows
-                            .filter((r) => r.hasData && r.fullNet !== null)
-                            .map((r) => Math.abs(r.fullNet as number));
-                          const maxAbs = nets.length > 0 ? Math.max(...nets, 50) : 50;
-                          const pad = Math.ceil(maxAbs * 0.12);
-                          const yMax = maxAbs + pad;
-                          const yDomain: [number, number] = [-yMax, yMax];
-
-                          return (
-                            <div className="h-[172px] w-full">
-                              <ResponsiveContainer width="100%" height="100%">
-                                <BarChart
-                                  data={chartRows}
-                                  margin={{ top: 28, right: 8, left: 8, bottom: 4 }}
-                                  barCategoryGap="18%"
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between mb-2">
+                          <p className="text-gray-400 font-medium">Net movement</p>
+                          <div className="flex flex-col items-start gap-1">
+                            <span className="text-[10px] uppercase tracking-wide text-gray-500">View</span>
+                            <div className="flex flex-wrap gap-1">
+                              {(['day', 'week', 'month'] as const).map((p) => (
+                                <button
+                                  key={p}
+                                  type="button"
+                                  onClick={() => setNetMovementPeriod(p)}
+                                  className={`px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
+                                    netMovementPeriod === p
+                                      ? 'bg-ukraine-blue/25 text-white border-ukraine-blue/50'
+                                      : 'bg-osint-dark text-gray-400 border-osint-border hover:text-gray-200'
+                                  }`}
+                                  aria-pressed={netMovementPeriod === p}
                                 >
-                                  <XAxis
-                                    dataKey="monthShort"
-                                    tick={{ fill: '#9ca3af', fontSize: 11 }}
-                                    stroke="#475569"
-                                    axisLine={{ stroke: '#475569' }}
-                                    tickLine={false}
-                                  />
-                                  <YAxis hide domain={yDomain} />
-                                  <Tooltip
-                                    content={({ active, payload }) => {
-                                      if (!active || !payload?.length) return null;
-                                      const p = payload[0].payload as MonthlyChartRow;
-                                      if (!p.hasData || p.fullNet === null) {
-                                        return (
-                                          <div className="bg-osint-card border border-osint-border p-2 rounded-lg text-xs text-gray-400">
-                                            No movement (need 2+ snapshots)
-                                          </div>
-                                        );
-                                      }
-                                      const v = p.fullNet;
-                                      return (
-                                        <div className="bg-osint-card border border-osint-border p-2 rounded-lg shadow-xl text-xs">
-                                          <p className="text-gray-200 font-medium">
-                                            {v >= 0 ? '+' : ''}
-                                            {Math.round(v).toLocaleString()} km²
-                                          </p>
-                                          <p className="text-gray-400 mt-1">{(p.pct ?? 0).toFixed(2)}% of Ukraine</p>
-                                        </div>
-                                      );
-                                    }}
-                                  />
-                                  <ReferenceLine y={0} stroke="#64748b" strokeWidth={1} />
-                                  <Bar
-                                    dataKey="netKm2"
-                                    maxBarSize={44}
-                                    radius={[2, 2, 0, 0]}
-                                    label={renderMonthlyBarValueLabel(chartRows)}
-                                  >
-                                    {chartRows.map((entry) => {
-                                      let fill = '#64748b';
-                                      let opacity = 0.35;
-                                      if (entry.hasData && entry.fullNet !== null) {
-                                        opacity = 1;
-                                        if (entry.fullNet > 0) fill = RUSSIAN_BAR;
-                                        else if (entry.fullNet < 0) fill = UKRAINIAN_BAR;
-                                        else fill = '#94a3b8';
-                                      }
-                                      return (
-                                        <Cell key={entry.monthShort} fill={fill} fillOpacity={opacity} />
-                                      );
-                                    })}
-                                  </Bar>
-                                </BarChart>
-                              </ResponsiveContainer>
+                                  {p === 'day' ? 'Day' : p === 'week' ? 'Week' : 'Month'}
+                                </button>
+                              ))}
                             </div>
-                          );
-                        })()}
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-500 mb-2 leading-snug">
+                          Positive = net toward Russian control (Ukraine → Russia). Hover for % of Ukraine.
+                          {netMovementPeriod === 'day' &&
+                            ' Day: last up to 14 snapshots, each vs previous.'}
+                          {netMovementPeriod === 'week' &&
+                            ' Week: last 6 ISO weeks with data, first vs last snapshot in each week.'}
+                          {netMovementPeriod === 'month' &&
+                            ' Month: six completed calendar months, first vs last snapshot in each month.'}
+                        </p>
+                        <div
+                          className={`w-full ${netMovementPeriod === 'day' ? 'h-[200px]' : 'h-[172px]'}`}
+                        >
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart
+                              data={netMovementChartRows}
+                              margin={{
+                                top: 28,
+                                right: 8,
+                                left: 8,
+                                bottom: netMovementPeriod === 'day' ? 36 : 4,
+                              }}
+                              barCategoryGap="18%"
+                            >
+                              <XAxis
+                                dataKey="periodLabel"
+                                tick={{ fill: '#9ca3af', fontSize: netMovementPeriod === 'day' ? 9 : 11 }}
+                                stroke="#475569"
+                                axisLine={{ stroke: '#475569' }}
+                                tickLine={false}
+                                angle={netMovementPeriod === 'day' ? -42 : 0}
+                                textAnchor={netMovementPeriod === 'day' ? 'end' : 'middle'}
+                                interval={netMovementPeriod === 'day' ? 0 : 'preserveStartEnd'}
+                                minTickGap={netMovementPeriod === 'day' ? 4 : 24}
+                              />
+                              <YAxis hide domain={netMovementYDomain} />
+                              <Tooltip
+                                content={({ active, payload }) => {
+                                  if (!active || !payload?.length) return null;
+                                  const p = payload[0].payload as NetMovementBarRow;
+                                  if (!p.hasData || p.fullNet === null) {
+                                    return (
+                                      <div className="bg-osint-card border border-osint-border p-2 rounded-lg text-xs text-gray-400">
+                                        {netMovementPeriod === 'week'
+                                          ? 'Need 2+ snapshots in week'
+                                          : netMovementPeriod === 'month'
+                                            ? 'Need 2+ snapshots in month'
+                                            : 'No value'}
+                                      </div>
+                                    );
+                                  }
+                                  const v = p.fullNet;
+                                  return (
+                                    <div className="bg-osint-card border border-osint-border p-2 rounded-lg shadow-xl text-xs">
+                                      <p className="text-gray-200 font-medium">
+                                        {v >= 0 ? '+' : ''}
+                                        {Math.round(v).toLocaleString()} km²
+                                      </p>
+                                      <p className="text-gray-400 mt-1">{(p.pct ?? 0).toFixed(2)}% of Ukraine</p>
+                                    </div>
+                                  );
+                                }}
+                              />
+                              <ReferenceLine y={0} stroke="#64748b" strokeWidth={1} />
+                              <Bar
+                                dataKey="netKm2"
+                                maxBarSize={44}
+                                radius={[2, 2, 0, 0]}
+                                label={renderNetMovementBarValueLabel(netMovementChartRows)}
+                              >
+                                {netMovementChartRows.map((entry, barIdx) => {
+                                  const RUSSIAN_BAR = '#ef4444';
+                                  const UKRAINIAN_BAR = '#3b82f6';
+                                  let fill = '#64748b';
+                                  let opacity = 0.35;
+                                  if (entry.hasData && entry.fullNet !== null) {
+                                    opacity = 1;
+                                    if (entry.fullNet > 0) fill = RUSSIAN_BAR;
+                                    else if (entry.fullNet < 0) fill = UKRAINIAN_BAR;
+                                    else fill = '#94a3b8';
+                                  }
+                                  return (
+                                    <Cell key={`${entry.periodLabel}-${barIdx}`} fill={fill} fillOpacity={opacity} />
+                                  );
+                                })}
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
                       </div>
                     </div>
                   </div>
