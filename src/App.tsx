@@ -22,7 +22,7 @@ import {
   get7DaySummary, 
   getCurrentControlTotals,
   getOblastData,
-  getSixMonthNetTerritoryChange,
+  getLastSixCompletedMonthsNetMovement,
 } from '@/utils/calculations';
 import type { DataSource, ViewLevel, OblastKey, DailyTerritoryData } from '@/types';
 
@@ -331,9 +331,9 @@ function App() {
     }
   }, [dataUpToSelected, viewLevel, selectedOblast]);
 
-  const sixMonthNet = useMemo(
+  const completedMonthNets = useMemo(
     () =>
-      getSixMonthNetTerritoryChange(
+      getLastSixCompletedMonthsNetMovement(
         dataUpToSelected,
         viewLevel === 'oblast' ? selectedOblast : undefined,
       ),
@@ -621,12 +621,6 @@ function App() {
                     ? `vs ${previousDateLabel}`
                     : 'vs previous available date';
 
-                const netKm2SixMo = sixMonthNet?.netKm2 ?? 0;
-                const netPctSixMo = sixMonthNet?.netPctOfTotalUkraine ?? 0;
-                const sixMonthBarData = [{ name: '6-month net', value: netKm2SixMo }];
-                const sixMonthMag = Math.max(Math.abs(netKm2SixMo), 200);
-                const sixMonthDomain: [number, number] = [-sixMonthMag * 1.25, sixMonthMag * 1.25];
-
                 return (
                   <div className="space-y-3">
                     <div className="flex justify-between">
@@ -661,73 +655,96 @@ function App() {
                         <span className="text-white font-bold">{formatKm2(totalArea)}</span>
                       </div>
                       <div className="mt-4">
-                        <p className="text-gray-400 font-medium mb-1">6-month net change</p>
-                        <p className="text-xs text-gray-500 mb-2">
-                          Δ Russian vs Ukrainian controlled from{' '}
-                          {sixMonthNet ? formatShortDate(sixMonthNet.windowStartDate) : '—'} to{' '}
-                          {sixMonthNet ? formatShortDate(sixMonthNet.endDate) : '—'}
-                          {sixMonthNet && sixMonthNet.snapshotCount > 0
-                            ? ` · ${sixMonthNet.snapshotCount} snapshots`
-                            : ''}
+                        <p className="text-gray-400 font-medium mb-1">Monthly net movement</p>
+                        <p className="text-xs text-gray-500 mb-3">
+                          Last six completed months (e.g. Nov 25–Apr 26 when viewing from May). Each bar:
+                          first vs last snapshot in that month (Δ Russian − Δ Ukrainian controlled). Percent
+                          is of total Ukraine area on that month&apos;s last snapshot.
                         </p>
-                        <p
-                          className={`text-sm font-semibold mb-2 ${
-                            netKm2SixMo >= 0 ? 'text-red-400' : 'text-blue-400'
-                          }`}
-                        >
-                          {netKm2SixMo >= 0 ? '+' : ''}
-                          {Math.round(netKm2SixMo).toLocaleString()} km²
-                          <span className="text-gray-400 font-normal">
-                            {' '}
-                            ({netPctSixMo.toFixed(2)}% of total Ukraine)
-                          </span>
-                          <span className="block text-xs font-normal text-gray-500 mt-0.5">
-                            {netKm2SixMo >= 0 ? 'Net shift toward Russian control' : 'Net shift toward Ukrainian control'}
-                          </span>
-                        </p>
-                        <div className="h-28 w-full">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart
-                              layout="vertical"
-                              data={sixMonthBarData}
-                              margin={{ top: 4, right: 12, left: 4, bottom: 4 }}
-                            >
-                              <XAxis
-                                type="number"
-                                domain={sixMonthDomain}
-                                tick={{ fill: '#6b7280', fontSize: 11 }}
-                                stroke="#475569"
-                              />
-                              <YAxis
-                                type="category"
-                                dataKey="name"
-                                width={108}
-                                tick={{ fill: '#6b7280', fontSize: 11 }}
-                                stroke="#475569"
-                              />
-                              <Tooltip
-                                content={({ active, payload }) => {
-                                  if (!active || !payload?.length) return null;
-                                  const v = Number(payload[0].value);
-                                  return (
-                                    <div className="bg-osint-card border border-osint-border p-3 rounded-lg shadow-xl text-sm">
-                                      <p className="text-gray-200 font-medium">
-                                        {v >= 0 ? '+' : ''}
-                                        {Math.round(v).toLocaleString()} km²
-                                      </p>
-                                      <p className="text-gray-400 mt-1">
-                                        {netPctSixMo.toFixed(2)}% of total Ukraine area
-                                      </p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                          {completedMonthNets.map((row) => {
+                            const net = row.netKm2;
+                            const pct = row.netPctOfTotalUkraine;
+                            const mag = Math.max(Math.abs(net), 50);
+                            const domainMax = Math.ceil(mag * 1.25);
+                            const monthDomain: [number, number] = [-domainMax, domainMax];
+                            const monthBarData = [{ name: 'Net', value: net }];
+                            const canPlot = row.snapshotCount >= 2;
+
+                            return (
+                              <div
+                                key={row.monthKey}
+                                className="rounded-lg border border-osint-border bg-osint-dark/40 p-3"
+                              >
+                                <p className="text-sm font-semibold text-white mb-1">{row.label}</p>
+                                {canPlot ? (
+                                  <>
+                                    <p
+                                      className={`text-xs font-medium mb-2 ${
+                                        net >= 0 ? 'text-red-400' : 'text-blue-400'
+                                      }`}
+                                    >
+                                      {net >= 0 ? '+' : ''}
+                                      {Math.round(net).toLocaleString()} km²
+                                      <span className="text-gray-500 font-normal">
+                                        {' '}
+                                        ({pct.toFixed(2)}%)
+                                      </span>
+                                    </p>
+                                    <div className="h-24 w-full">
+                                      <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart
+                                          layout="vertical"
+                                          data={monthBarData}
+                                          margin={{ top: 2, right: 8, left: 2, bottom: 2 }}
+                                        >
+                                          <XAxis
+                                            type="number"
+                                            domain={monthDomain}
+                                            tick={{ fill: '#6b7280', fontSize: 10 }}
+                                            stroke="#475569"
+                                            tickFormatter={(v) => Math.round(Number(v)).toLocaleString()}
+                                          />
+                                          <YAxis
+                                            type="category"
+                                            dataKey="name"
+                                            width={36}
+                                            tick={{ fill: '#6b7280', fontSize: 10 }}
+                                            stroke="#475569"
+                                          />
+                                          <Tooltip
+                                            content={({ active, payload }) => {
+                                              if (!active || !payload?.length) return null;
+                                              const v = Number(payload[0].value);
+                                              return (
+                                                <div className="bg-osint-card border border-osint-border p-2 rounded-lg shadow-xl text-xs">
+                                                  <p className="text-gray-200 font-medium">
+                                                    {v >= 0 ? '+' : ''}
+                                                    {Math.round(v).toLocaleString()} km²
+                                                  </p>
+                                                  <p className="text-gray-400 mt-1">{pct.toFixed(2)}% of Ukraine</p>
+                                                </div>
+                                              );
+                                            }}
+                                          />
+                                          <ReferenceLine x={0} stroke="#64748b" strokeDasharray="4 4" />
+                                          <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                                            <Cell fill={net >= 0 ? '#ef4444' : '#3b82f6'} />
+                                          </Bar>
+                                        </BarChart>
+                                      </ResponsiveContainer>
                                     </div>
-                                  );
-                                }}
-                              />
-                              <ReferenceLine x={0} stroke="#64748b" strokeDasharray="4 4" />
-                              <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                                <Cell fill={netKm2SixMo >= 0 ? '#ef4444' : '#3b82f6'} />
-                              </Bar>
-                            </BarChart>
-                          </ResponsiveContainer>
+                                  </>
+                                ) : (
+                                  <p className="text-xs text-gray-500">
+                                    {row.snapshotCount === 0
+                                      ? 'No snapshots this month in the loaded range.'
+                                      : 'Need at least two snapshots in the month to show movement.'}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     </div>

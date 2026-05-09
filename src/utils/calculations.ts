@@ -364,89 +364,120 @@ function parseLocalDateKey(dateKey: string): Date {
   return new Date(dateKey);
 }
 
-function formatLocalDateKey(d: Date): string {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+function shiftCalendarMonth(year: number, month1Based: number, delta: number): { year: number; month: number } {
+  const d = new Date(year, month1Based - 1 + delta, 1);
+  return { year: d.getFullYear(), month: d.getMonth() + 1 };
 }
 
-export interface SixMonthNetChangeResult {
+/** Last fully completed calendar month relative to `referenceDate` (current calendar month excluded). Month is 1–12. */
+function getLastCompletedYearMonth(referenceDate: Date): { year: number; month: number } {
+  const y = referenceDate.getFullYear();
+  const m0 = referenceDate.getMonth(); // 0-based (May = 4)
+  if (m0 === 0) {
+    return { year: y - 1, month: 12 };
+  }
+  return { year: y, month: m0 }; // previous month in 1-based form (e.g. May → April = 4)
+}
+
+function monthKey(year: number, month: number): string {
+  return `${year}-${String(month).padStart(2, '0')}`;
+}
+
+const SHORT_MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function formatCompletedMonthLabel(year: number, month: number): string {
+  return `${SHORT_MONTH[month - 1]} ${String(year).slice(-2)}`;
+}
+
+export interface CompletedMonthNetRow {
+  year: number;
+  month: number;
+  monthKey: string;
+  label: string;
   netKm2: number;
   netPctOfTotalUkraine: number;
-  totalUkraineAreaKm2: number;
-  windowStartDate: string;
-  endDate: string;
   snapshotCount: number;
+  startDate: string | null;
+  endDate: string | null;
+}
+
+function netMovementNational(startDay: DailyTerritoryData, endDay: DailyTerritoryData): number {
+  const r0 = startDay.total_russian_controlled_km2;
+  const r1 = endDay.total_russian_controlled_km2;
+  const u0 = startDay.total_area_km2 - r0 - startDay.total_disputed_km2;
+  const u1 = endDay.total_area_km2 - r1 - endDay.total_disputed_km2;
+  return r1 - r0 - (u1 - u0);
+}
+
+function netMovementOblast(
+  startDay: DailyTerritoryData,
+  endDay: DailyTerritoryData,
+  oblast: OblastKey,
+): number {
+  const sRow = startDay.oblasts.find((o) => o.oblast === oblast);
+  const eRow = endDay.oblasts.find((o) => o.oblast === oblast);
+  const r0 = sRow?.russian_controlled_km2 ?? 0;
+  const r1 = eRow?.russian_controlled_km2 ?? 0;
+  const u0 = sRow?.ukrainian_controlled_km2 ?? 0;
+  const u1 = eRow?.ukrainian_controlled_km2 ?? 0;
+  return r1 - r0 - (u1 - u0);
 }
 
 /**
- * Net territorial movement over ~6 months: cumulative (Δ Russian controlled − Δ Ukrainian controlled)
- * from the first snapshot on/after (end date − 6 months) through the latest day in `data`.
- * Percent is net km² as a share of total Ukraine area on the end snapshot.
+ * Six most recent completed calendar months (e.g. with data ending May 2026 → Nov 2025 … Apr 2026),
+ * each with net movement (Δ Russian − Δ Ukrainian controlled) from first to last snapshot in that month.
+ * Percent uses total Ukraine area on the month's last snapshot.
  */
-export function getSixMonthNetTerritoryChange(
+export function getLastSixCompletedMonthsNetMovement(
   data: DailyTerritoryData[],
   oblast?: OblastKey,
-): SixMonthNetChangeResult | null {
+): CompletedMonthNetRow[] {
   if (data.length < 1) {
-    return null;
+    return [];
   }
 
-  const endIdx = data.length - 1;
-  const endDay = data[endIdx];
-  const endDate = parseLocalDateKey(endDay.date);
-  const windowStartDate = new Date(endDate);
-  windowStartDate.setMonth(windowStartDate.getMonth() - 6);
-  const startKey = formatLocalDateKey(windowStartDate);
+  const endDay = data[data.length - 1];
+  const ref = parseLocalDateKey(endDay.date);
+  const { year: anchorY, month: anchorM } = getLastCompletedYearMonth(ref);
 
-  let startIdx = data.findIndex((d) => d.date >= startKey);
-  if (startIdx < 0) {
-    startIdx = 0;
-  }
-  if (startIdx >= endIdx) {
-    const totalUkraineAreaKm2 = endDay.total_area_km2 || 1;
-    return {
-      netKm2: 0,
-      netPctOfTotalUkraine: 0,
-      totalUkraineAreaKm2,
-      windowStartDate: endDay.date,
-      endDate: endDay.date,
-      snapshotCount: 1,
-    };
-  }
+  const rows: CompletedMonthNetRow[] = [];
+  for (let i = 0; i < 6; i++) {
+    const { year, month } = shiftCalendarMonth(anchorY, anchorM, -5 + i);
+    const key = monthKey(year, month);
+    const inMonth = data.filter((d) => d.date.startsWith(key));
 
-  const startDay = data[startIdx];
-  const totalUkraineAreaKm2 = Math.max(endDay.total_area_km2, 1);
+    let netKm2 = 0;
+    let netPctOfTotalUkraine = 0;
+    let startDate: string | null = null;
+    let endDate: string | null = null;
 
-  let netKm2: number;
+    if (inMonth.length >= 2) {
+      const start = inMonth[0];
+      const end = inMonth[inMonth.length - 1];
+      startDate = start.date;
+      endDate = end.date;
+      netKm2 = oblast ? netMovementOblast(start, end, oblast) : netMovementNational(start, end);
+      const totalUkraine = Math.max(end.total_area_km2, 1);
+      netPctOfTotalUkraine = (netKm2 / totalUkraine) * 100;
+    } else if (inMonth.length === 1) {
+      startDate = inMonth[0].date;
+      endDate = inMonth[0].date;
+    }
 
-  if (oblast) {
-    const sRow = startDay.oblasts.find((o) => o.oblast === oblast);
-    const eRow = endDay.oblasts.find((o) => o.oblast === oblast);
-    const r0 = sRow?.russian_controlled_km2 ?? 0;
-    const r1 = eRow?.russian_controlled_km2 ?? 0;
-    const u0 = sRow?.ukrainian_controlled_km2 ?? 0;
-    const u1 = eRow?.ukrainian_controlled_km2 ?? 0;
-    netKm2 = r1 - r0 - (u1 - u0);
-  } else {
-    const r0 = startDay.total_russian_controlled_km2;
-    const r1 = endDay.total_russian_controlled_km2;
-    const u0 = startDay.total_area_km2 - r0 - startDay.total_disputed_km2;
-    const u1 = endDay.total_area_km2 - r1 - endDay.total_disputed_km2;
-    netKm2 = r1 - r0 - (u1 - u0);
+    rows.push({
+      year,
+      month,
+      monthKey: key,
+      label: formatCompletedMonthLabel(year, month),
+      netKm2,
+      netPctOfTotalUkraine,
+      snapshotCount: inMonth.length,
+      startDate,
+      endDate,
+    });
   }
 
-  const netPctOfTotalUkraine = (netKm2 / totalUkraineAreaKm2) * 100;
-
-  return {
-    netKm2,
-    netPctOfTotalUkraine,
-    totalUkraineAreaKm2,
-    windowStartDate: startDay.date,
-    endDate: endDay.date,
-    snapshotCount: endIdx - startIdx + 1,
-  };
+  return rows;
 }
 
 /**
