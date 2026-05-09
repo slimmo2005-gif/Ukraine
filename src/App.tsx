@@ -17,13 +17,15 @@ import { ViewLevelToggle } from '@/components/ViewLevelToggle';
 import { MarimekkoChart, OblastGridView } from '@/components/MarimekkoChart';
 import { OBLAST_NAMES } from '@/data/mockData';
 import { EXCLUDED_DATES } from '@/config/excludedDates';
-import { 
-  getTodayMetrics, 
-  get7DaySummary, 
+import {
+  getTodayMetrics,
+  get7DaySummary,
   getCurrentControlTotals,
   getOblastData,
   getNetMovementChartRows,
   getOblastRussianChangeKm2,
+  getSummaryDeltasNational,
+  getSummaryDeltasOblast,
   type NetMovementBarRow,
   type OblastRussianChangePeriod,
 } from '@/utils/calculations';
@@ -371,18 +373,39 @@ function App() {
     setSelectedDate(earlier || later || latestAvailableDate);
   };
 
+  const summaryEndIndex = dataUpToSelected.length - 1;
+
   // Get metrics based on view level - operates on data up to selected date.
   const metrics = useMemo(() => {
     if (viewLevel === 'total') {
       const today = getTodayMetrics(dataUpToSelected);
       const week7 = get7DaySummary(dataUpToSelected);
       const current = getCurrentControlTotals(dataUpToSelected);
-      return { today, week7, current, isOblast: false };
+      const deltaLine = getSummaryDeltasNational(
+        dataUpToSelected,
+        weeklySnapshotData,
+        netMovementPeriod,
+        selectedDate,
+        summaryEndIndex,
+        previousDateLabel,
+        isLive,
+      );
+      return { today, week7, current, deltaLine, isOblast: false };
     } else {
       // Oblast-level metrics
       const oblastData = getOblastData(dataUpToSelected, selectedOblast);
       const today = oblastData[oblastData.length - 1];
-      
+      const deltaLine = getSummaryDeltasOblast(
+        dataUpToSelected,
+        weeklySnapshotData,
+        netMovementPeriod,
+        selectedDate,
+        summaryEndIndex,
+        selectedOblast,
+        previousDateLabel,
+        isLive,
+      );
+
       return {
         today: {
           russianControlled: today?.russianControlled || 0,
@@ -403,10 +426,21 @@ function App() {
           disputed: today?.disputed || 0,
           totalArea: today?.totalArea || 0,
         },
+        deltaLine,
         isOblast: true,
       };
     }
-  }, [dataUpToSelected, viewLevel, selectedOblast]);
+  }, [
+    dataUpToSelected,
+    viewLevel,
+    selectedOblast,
+    weeklySnapshotData,
+    netMovementPeriod,
+    selectedDate,
+    summaryEndIndex,
+    previousDateLabel,
+    isLive,
+  ]);
 
   const netMovementChartRows = useMemo(
     () =>
@@ -714,7 +748,15 @@ function App() {
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-osint-card rounded-lg p-6 border border-osint-border">
-              <h3 className="text-lg font-semibold text-white mb-4">Territory Breakdown</h3>
+              <h3 className="text-lg font-semibold text-white mb-1">Territory Breakdown</h3>
+              <p className="text-[11px] text-gray-500 mb-4 leading-snug">
+                Δ lines follow Net movement <span className="text-gray-400">View</span> (
+                {netMovementPeriod === 'day' ? 'Day' : netMovementPeriod === 'week' ? 'Week' : 'Month'}
+                {netMovementPeriod === 'week' && weeklySnapshotData.length > 0
+                  ? ': WoW uses weekly history files when available'
+                  : ''}
+                ).
+              </p>
               {(() => {
                 const totalArea = metrics.current.totalArea || 1;
                 const russianPct = (metrics.current.russianControlled / totalArea) * 100;
@@ -722,11 +764,8 @@ function App() {
                 const ukrainianPct = 100 - russianPct - disputedPct;
                 const ukrainianTotal = totalArea - metrics.current.russianControlled - metrics.current.disputed;
 
-                const deltaSuffix = isLive
-                  ? 'vs previous day'
-                  : previousDateLabel
-                    ? `vs ${previousDateLabel}`
-                    : 'vs previous available date';
+                const { compareSuffix, ...deltas } = metrics.deltaLine;
+                const deltaSuffix = compareSuffix;
 
                 return (
                   <div className="space-y-3">
@@ -735,7 +774,7 @@ function App() {
                       <div className="text-right">
                         <span className="text-red-400 font-medium">{formatPercentOneDecimal(russianPct)}</span>
                         <span className="text-gray-500 text-sm ml-2">({formatKm2(metrics.current.russianControlled)})</span>
-                        <p className="text-xs text-red-400/80">{formatDeltaKm2(metrics.today.russianChange)} {deltaSuffix}</p>
+                        <p className="text-xs text-red-400/80">{formatDeltaKm2(deltas.russianChange)} {deltaSuffix}</p>
                       </div>
                     </div>
                     <div className="flex justify-between">
@@ -743,7 +782,7 @@ function App() {
                       <div className="text-right">
                         <span className="text-blue-400 font-medium">{formatPercentOneDecimal(ukrainianPct)}</span>
                         <span className="text-gray-500 text-sm ml-2">({formatKm2(ukrainianTotal)})</span>
-                        <p className="text-xs text-blue-400/80">{formatDeltaKm2(metrics.today.ukrainianChange)} {deltaSuffix}</p>
+                        <p className="text-xs text-blue-400/80">{formatDeltaKm2(deltas.ukrainianChange)} {deltaSuffix}</p>
                       </div>
                     </div>
                     {(metrics.current.disputed > 0 || disputedPct > 0.1) && (
@@ -752,7 +791,7 @@ function App() {
                         <div className="text-right">
                           <span className="text-amber-400 font-medium">{formatPercentOneDecimal(disputedPct)}</span>
                           <span className="text-gray-500 text-sm ml-2">({formatKm2(metrics.current.disputed)})</span>
-                          <p className="text-xs text-amber-400/80">{formatDeltaKm2(metrics.today.disputedChange)} {deltaSuffix}</p>
+                          <p className="text-xs text-amber-400/80">{formatDeltaKm2(deltas.disputedChange)} {deltaSuffix}</p>
                         </div>
                       </div>
                     )}

@@ -442,7 +442,228 @@ function formatLocalDateKey(d: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+function getNationalDeltaWindowed(
+  data: DailyTerritoryData[],
+  endIndex: number,
+  daysBack: number,
+): { russianChange: number; ukrainianChange: number; disputedChange: number } {
+  if (endIndex < 0 || endIndex >= data.length) {
+    return { russianChange: 0, ukrainianChange: 0, disputedChange: 0 };
+  }
+  const endDay = data[endIndex];
+  const endDate = parseLocalDateKey(endDay.date);
+  const windowStart = new Date(endDate);
+  windowStart.setDate(windowStart.getDate() - daysBack);
+  const startKey = formatLocalDateKey(windowStart);
+
+  let startIdx = 0;
+  for (let i = 0; i <= endIndex; i++) {
+    if (data[i].date >= startKey) {
+      startIdx = i;
+      break;
+    }
+  }
+
+  const start = data[startIdx];
+  const end = data[endIndex];
+  const r0 = start.total_russian_controlled_km2;
+  const r1 = end.total_russian_controlled_km2;
+  const u0 = start.total_area_km2 - r0 - start.total_disputed_km2;
+  const u1 = end.total_area_km2 - r1 - end.total_disputed_km2;
+  return {
+    russianChange: r1 - r0,
+    ukrainianChange: u1 - u0,
+    disputedChange: end.total_disputed_km2 - start.total_disputed_km2,
+  };
+}
+
+function getOblastDeltaWindowed(
+  data: DailyTerritoryData[],
+  endIndex: number,
+  oblast: OblastKey,
+  daysBack: number,
+): { russianChange: number; ukrainianChange: number; disputedChange: number } {
+  if (endIndex < 0 || endIndex >= data.length) {
+    return { russianChange: 0, ukrainianChange: 0, disputedChange: 0 };
+  }
+  const endDay = data[endIndex];
+  const endDate = parseLocalDateKey(endDay.date);
+  const windowStart = new Date(endDate);
+  windowStart.setDate(windowStart.getDate() - daysBack);
+  const startKey = formatLocalDateKey(windowStart);
+
+  let startIdx = 0;
+  for (let i = 0; i <= endIndex; i++) {
+    if (data[i].date >= startKey) {
+      startIdx = i;
+      break;
+    }
+  }
+
+  const startRow = data[startIdx].oblasts.find((o) => o.oblast === oblast);
+  const endRow = data[endIndex].oblasts.find((o) => o.oblast === oblast);
+  return {
+    russianChange: (endRow?.russian_controlled_km2 ?? 0) - (startRow?.russian_controlled_km2 ?? 0),
+    ukrainianChange: (endRow?.ukrainian_controlled_km2 ?? 0) - (startRow?.ukrainian_controlled_km2 ?? 0),
+    disputedChange: (endRow?.disputed_controlled_km2 ?? 0) - (startRow?.disputed_controlled_km2 ?? 0),
+  };
+}
+
+function weeklyAnchorsOnOrBefore(
+  weeklySnapshots: DailyTerritoryData[],
+  selectedDate: string,
+): DailyTerritoryData[] {
+  return weeklySnapshots
+    .filter((w) => w.date <= selectedDate)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
 export type OblastRussianChangePeriod = 'day' | 'week' | 'month';
+
+/** Deltas under Territory Breakdown; aligns with Net movement Day / Week / Month. */
+export interface SummaryDeltaLine {
+  russianChange: number;
+  ukrainianChange: number;
+  disputedChange: number;
+  compareSuffix: string;
+}
+
+export function getSummaryDeltasNational(
+  dataUpToSelected: DailyTerritoryData[],
+  weeklySnapshots: DailyTerritoryData[],
+  period: OblastRussianChangePeriod,
+  selectedDate: string,
+  endIndex: number,
+  previousDailyDateLabel: string | null,
+  isLive: boolean,
+): SummaryDeltaLine {
+  if (endIndex < 0 || dataUpToSelected.length === 0) {
+    return {
+      russianChange: 0,
+      ukrainianChange: 0,
+      disputedChange: 0,
+      compareSuffix: '',
+    };
+  }
+
+  if (period === 'day') {
+    const { russianChange, ukrainianChange, disputedChange } = getDerivedTotalChanges(
+      dataUpToSelected,
+      endIndex,
+    );
+    const compareSuffix = isLive
+      ? 'vs previous day'
+      : previousDailyDateLabel
+        ? `vs ${previousDailyDateLabel}`
+        : 'vs previous available date';
+    return { russianChange, ukrainianChange, disputedChange, compareSuffix };
+  }
+
+  if (period === 'week' && weeklySnapshots.length > 0) {
+    const anchors = weeklyAnchorsOnOrBefore(weeklySnapshots, selectedDate);
+    if (anchors.length === 0) {
+      const w = getNationalDeltaWindowed(dataUpToSelected, endIndex, 7);
+      return {
+        ...w,
+        compareSuffix: '~7 days (no weekly anchor on or before this date)',
+      };
+    }
+    const latest = anchors[anchors.length - 1];
+    const prev = anchors.length >= 2 ? anchors[anchors.length - 2] : null;
+    return {
+      russianChange: latest.russian_change_km2 ?? 0,
+      ukrainianChange: latest.ukrainian_change_km2 ?? 0,
+      disputedChange: latest.disputed_change_km2 ?? 0,
+      compareSuffix: prev
+        ? `WoW vs ${prev.date} (weekly anchor ${latest.date})`
+        : `first weekly anchor (${latest.date})`,
+    };
+  }
+
+  if (period === 'week') {
+    const w = getNationalDeltaWindowed(dataUpToSelected, endIndex, 7);
+    return {
+      ...w,
+      compareSuffix: '~7 days (first snapshot in window)',
+    };
+  }
+
+  const m = getNationalDeltaWindowed(dataUpToSelected, endIndex, 30);
+  return {
+    ...m,
+    compareSuffix: '~30 days (first snapshot in window)',
+  };
+}
+
+export function getSummaryDeltasOblast(
+  dataUpToSelected: DailyTerritoryData[],
+  weeklySnapshots: DailyTerritoryData[],
+  period: OblastRussianChangePeriod,
+  selectedDate: string,
+  endIndex: number,
+  oblast: OblastKey,
+  previousDailyDateLabel: string | null,
+  isLive: boolean,
+): SummaryDeltaLine {
+  if (endIndex < 0 || dataUpToSelected.length === 0) {
+    return {
+      russianChange: 0,
+      ukrainianChange: 0,
+      disputedChange: 0,
+      compareSuffix: '',
+    };
+  }
+
+  if (period === 'day') {
+    const { russianChange, ukrainianChange, disputedChange } = getDerivedOblastChanges(
+      dataUpToSelected,
+      endIndex,
+      oblast,
+    );
+    const compareSuffix = isLive
+      ? 'vs previous day'
+      : previousDailyDateLabel
+        ? `vs ${previousDailyDateLabel}`
+        : 'vs previous available date';
+    return { russianChange, ukrainianChange, disputedChange, compareSuffix };
+  }
+
+  if (period === 'week' && weeklySnapshots.length > 0) {
+    const anchors = weeklyAnchorsOnOrBefore(weeklySnapshots, selectedDate);
+    if (anchors.length === 0) {
+      const w = getOblastDeltaWindowed(dataUpToSelected, endIndex, oblast, 7);
+      return {
+        ...w,
+        compareSuffix: '~7 days (no weekly anchor on or before this date)',
+      };
+    }
+    const latest = anchors[anchors.length - 1];
+    const prev = anchors.length >= 2 ? anchors[anchors.length - 2] : null;
+    const row = latest.oblasts.find((o) => o.oblast === oblast);
+    return {
+      russianChange: row?.russian_change_km2 ?? 0,
+      ukrainianChange: row?.ukrainian_change_km2 ?? 0,
+      disputedChange: row?.disputed_change_km2 ?? 0,
+      compareSuffix: prev
+        ? `WoW vs ${prev.date} (weekly ${latest.date})`
+        : `first weekly anchor (${latest.date})`,
+    };
+  }
+
+  if (period === 'week') {
+    const w = getOblastDeltaWindowed(dataUpToSelected, endIndex, oblast, 7);
+    return {
+      ...w,
+      compareSuffix: '~7 days (first snapshot in window)',
+    };
+  }
+
+  const m = getOblastDeltaWindowed(dataUpToSelected, endIndex, oblast, 30);
+  return {
+    ...m,
+    compareSuffix: '~30 days (first snapshot in window)',
+  };
+}
 
 /**
  * Change in Russian-controlled km² for one oblast at `endIndex` in `data` (sorted by date).
