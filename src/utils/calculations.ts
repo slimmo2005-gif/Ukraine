@@ -90,6 +90,28 @@ export function calculateControlData(data: DailyTerritoryData[]): ChartDataPoint
 }
 
 /**
+ * Calculates daily movement directly from consecutive control snapshots.
+ * This keeps the Daily Changes chart strictly consistent with control-over-time values.
+ */
+export function calculateDailyChangeData(data: DailyTerritoryData[]): ChartDataPoint[] {
+  const controlData = calculateControlData(data);
+
+  return controlData.map((point, index) => {
+    if (index === 0) {
+      return point;
+    }
+
+    const previousPoint = controlData[index - 1];
+    return {
+      ...point,
+      russianChange: point.russianControlled - previousPoint.russianControlled,
+      ukrainianChange: point.ukrainianControlled - previousPoint.ukrainianControlled,
+      disputedChange: point.disputed - previousPoint.disputed,
+    };
+  });
+}
+
+/**
  * Calculates 7-day rolling averages for changes
  */
 export function calculateRollingAverage(

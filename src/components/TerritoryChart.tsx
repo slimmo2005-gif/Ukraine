@@ -15,6 +15,7 @@ import {
 import type { DailyTerritoryData, ChartDataPoint, AggregatedData, TimeRange } from '@/types';
 import { 
   calculateControlData, 
+  calculateDailyChangeData,
   aggregateWeekly, 
   aggregateMonthly
 } from '@/utils/calculations';
@@ -34,6 +35,9 @@ export function TerritoryChart({ data, timeRange, chartType }: TerritoryChartPro
   // Prepare data based on time range
   const getChartData = (): (ChartDataPoint | AggregatedData)[] => {
     if (timeRange === 'daily') {
+      if (chartType === 'change') {
+        return calculateDailyChangeData(data);
+      }
       return calculateControlData(data);
     }
     if (timeRange === 'weekly') {
