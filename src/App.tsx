@@ -8,7 +8,6 @@ import {
   ReferenceLine,
   Tooltip,
   Cell,
-  LabelList,
 } from 'recharts';
 import { Header } from '@/components/Header';
 import { ChartSection } from '@/components/ChartSection';
@@ -209,49 +208,52 @@ function formatShortDate(dateKey: string): string {
 
 const MONTH_AXIS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-type MonthlyBarPayload = {
-  hasData: boolean;
+type MonthlyChartRow = {
+  monthShort: string;
+  netKm2: number;
   fullNet: number | null;
   pct: number | null;
+  hasData: boolean;
 };
 
-/** Recharts LabelList `content` render props (subset + payload). */
-function MonthlyMovementBarLabels(props: {
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  payload?: MonthlyBarPayload;
-}) {
-  const x = Number(props.x ?? 0);
-  const y = Number(props.y ?? 0);
-  const width = Number(props.width ?? 0);
-  const height = Number(props.height ?? 0);
-  const payload = props.payload;
-  const cx = x + width / 2;
+/** Recharts `<Bar label={…} />` passes geometry + payload per cell; show signed km² only (no %). */
+function renderMonthlyBarValueLabel(rows: MonthlyChartRow[]) {
+  return (raw: unknown) => {
+    const p = raw as {
+      x?: number;
+      y?: number;
+      width?: number;
+      height?: number;
+      index?: number;
+      payload?: MonthlyChartRow;
+    };
+    const x = Number(p.x ?? 0);
+    const y = Number(p.y ?? 0);
+    const width = Number(p.width ?? 0);
+    const height = Number(p.height ?? 0);
+    const payload = p.payload ?? (typeof p.index === 'number' ? rows[p.index] : undefined);
+    const cx = x + width / 2;
 
-  if (!payload?.hasData || payload.fullNet === null) {
+    if (!payload?.hasData || payload.fullNet === null) {
+      return (
+        <text x={cx} y={y - 4} textAnchor="middle" fill="#6b7280" fontSize={10}>
+          —
+        </text>
+      );
+    }
+
+    const net = payload.fullNet;
+    const text = `${net >= 0 ? '+' : ''}${Math.round(net).toLocaleString()}`;
+    const fill = net > 0 ? '#f87171' : net < 0 ? '#60a5fa' : '#d1d5db';
+    const above = net >= 0;
+    const labelY = above ? y - 8 : y + Math.max(height, 0) + 14;
+
     return (
-      <text x={cx} y={y - 4} textAnchor="middle" fill="#6b7280" fontSize={10}>
-        —
+      <text x={cx} y={labelY} textAnchor="middle" fontSize={11} fontWeight={600} fill={fill}>
+        {text}
       </text>
     );
-  }
-
-  const net = payload.fullNet;
-  const pct = payload.pct ?? 0;
-  const sign = net >= 0 ? '+' : '';
-  const isPositive = net > 0;
-  const isNegative = net < 0;
-  const kmColor = isPositive ? '#f87171' : isNegative ? '#60a5fa' : '#d1d5db';
-  const labelY = isPositive || net === 0 ? y - 6 : y + Math.max(height, 0) + 16;
-
-  return (
-    <text x={cx} y={labelY} textAnchor="middle" fontSize={10}>
-      <tspan x={cx} dy={0} fill={kmColor}>{`${sign}${Math.round(net).toLocaleString()} km²`}</tspan>
-      <tspan x={cx} dy={12} fill="#9ca3af" fontSize={9}>{`${pct.toFixed(2)}%`}</tspan>
-    </text>
-  );
+  };
 }
 
 function App() {
@@ -732,11 +734,11 @@ function App() {
                           const yDomain: [number, number] = [-yMax, yMax];
 
                           return (
-                            <div className="h-[160px] w-full">
+                            <div className="h-[172px] w-full">
                               <ResponsiveContainer width="100%" height="100%">
                                 <BarChart
                                   data={chartRows}
-                                  margin={{ top: 42, right: 8, left: 8, bottom: 4 }}
+                                  margin={{ top: 28, right: 8, left: 8, bottom: 4 }}
                                   barCategoryGap="18%"
                                 >
                                   <XAxis
@@ -750,7 +752,7 @@ function App() {
                                   <Tooltip
                                     content={({ active, payload }) => {
                                       if (!active || !payload?.length) return null;
-                                      const p = payload[0].payload as (typeof chartRows)[0];
+                                      const p = payload[0].payload as MonthlyChartRow;
                                       if (!p.hasData || p.fullNet === null) {
                                         return (
                                           <div className="bg-osint-card border border-osint-border p-2 rounded-lg text-xs text-gray-400">
@@ -771,7 +773,12 @@ function App() {
                                     }}
                                   />
                                   <ReferenceLine y={0} stroke="#64748b" strokeWidth={1} />
-                                  <Bar dataKey="netKm2" maxBarSize={44} radius={[2, 2, 0, 0]}>
+                                  <Bar
+                                    dataKey="netKm2"
+                                    maxBarSize={44}
+                                    radius={[2, 2, 0, 0]}
+                                    label={renderMonthlyBarValueLabel(chartRows)}
+                                  >
                                     {chartRows.map((entry) => {
                                       let fill = '#64748b';
                                       let opacity = 0.35;
@@ -785,27 +792,6 @@ function App() {
                                         <Cell key={entry.monthShort} fill={fill} fillOpacity={opacity} />
                                       );
                                     })}
-                                    <LabelList
-                                      dataKey="netKm2"
-                                      content={(labelProps) => {
-                                        const lp = labelProps as {
-                                          x?: number | string;
-                                          y?: number | string;
-                                          width?: number | string;
-                                          height?: number | string;
-                                          payload?: MonthlyBarPayload;
-                                        };
-                                        return (
-                                          <MonthlyMovementBarLabels
-                                            x={Number(lp.x ?? 0)}
-                                            y={Number(lp.y ?? 0)}
-                                            width={Number(lp.width ?? 0)}
-                                            height={Number(lp.height ?? 0)}
-                                            payload={lp.payload}
-                                          />
-                                        );
-                                      }}
-                                    />
                                   </Bar>
                                 </BarChart>
                               </ResponsiveContainer>
