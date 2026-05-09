@@ -831,55 +831,91 @@ function App() {
             </div>
 
             {viewLevel === 'total' && (
-              <div className="bg-osint-card rounded-lg p-6 border border-osint-border">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-white">
+              <div className="bg-osint-card rounded-lg px-2.5 py-4 sm:px-3 border border-osint-border">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between mb-3">
+                  <h3 className="text-base sm:text-lg font-semibold text-white leading-tight pr-1">
                     Oblast Breakdown - Russian Controlled Territory
                   </h3>
-                  <div className="flex flex-col items-start gap-1">
-                    <span className="text-[10px] uppercase tracking-wide text-gray-500">Δ Russian area</span>
-                    <div className="flex flex-wrap gap-1">
-                      {(['day', 'week', 'month'] as const).map((p) => (
-                        <button
-                          key={p}
-                          type="button"
-                          onClick={() => setOblastRussianChangePeriod(p)}
-                          className={`px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
-                            oblastRussianChangePeriod === p
-                              ? 'bg-ukraine-blue/25 text-white border-ukraine-blue/50'
-                              : 'bg-osint-dark text-gray-400 border-osint-border hover:text-gray-200'
-                          }`}
-                          aria-pressed={oblastRussianChangePeriod === p}
-                          title={
-                            p === 'day'
-                              ? 'Vs previous snapshot'
-                              : p === 'week'
-                                ? 'Vs ~7 days (first snapshot in window)'
-                                : 'Vs ~30 days (first snapshot in window)'
-                          }
-                        >
-                          {p === 'day' ? 'Day' : p === 'week' ? 'Week' : 'Month'}
-                        </button>
-                      ))}
+                  <div className="flex flex-col items-stretch sm:items-end gap-1 shrink-0 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-nowrap">
+                      <span className="text-[10px] uppercase tracking-wide text-gray-500 whitespace-nowrap shrink-0">
+                        Δ RU
+                      </span>
+                      <div className="flex flex-nowrap gap-0.5">
+                        {(['day', 'week', 'month'] as const).map((p) => (
+                          <button
+                            key={p}
+                            type="button"
+                            onClick={() => setOblastRussianChangePeriod(p)}
+                            className={`px-2 py-0.5 rounded text-[11px] font-medium border transition-colors whitespace-nowrap shrink-0 ${
+                              oblastRussianChangePeriod === p
+                                ? 'bg-ukraine-blue/25 text-white border-ukraine-blue/50'
+                                : 'bg-osint-dark text-gray-400 border-osint-border hover:text-gray-200'
+                            }`}
+                            aria-pressed={oblastRussianChangePeriod === p}
+                            title={
+                              p === 'day'
+                                ? 'Vs previous snapshot'
+                                : p === 'week'
+                                  ? 'Vs ~7 days (first snapshot in window)'
+                                  : 'Vs ~30 days (first snapshot in window)'
+                            }
+                          >
+                            {p === 'day' ? 'Day' : p === 'week' ? 'Week' : 'Month'}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <p className="text-[10px] text-gray-600 max-w-[14rem] leading-tight">
+                    <p className="text-[9px] text-gray-600 text-left sm:text-right leading-tight max-w-[18rem]">
                       {oblastRussianChangePeriod === 'day' && 'Previous available snapshot.'}
                       {oblastRussianChangePeriod === 'week' && 'Earliest snapshot on or after 7 days before viewed date.'}
                       {oblastRussianChangePeriod === 'month' && 'Earliest snapshot on or after 30 days before viewed date.'}
                     </p>
                   </div>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                <div className="overflow-x-auto -mx-0.5">
+                  <table className="w-full table-fixed text-[11px] sm:text-xs border-collapse">
                     <thead>
                       <tr className="border-b border-osint-border">
-                        <th className="text-left py-2 px-3 text-gray-400 font-medium">Oblast</th>
-                        <th className="text-right py-2 px-3 text-gray-400 font-medium">Russian (km²)</th>
-                        <th className="text-right py-2 px-3 text-gray-400 font-medium">Δ Russian (km²)</th>
-                        <th className="text-right py-2 px-3 text-gray-400 font-medium">Ukrainian (km²)</th>
-                        <th className="text-right py-2 px-3 text-gray-400 font-medium">Disputed (km²)</th>
-                        <th className="text-right py-2 px-3 text-gray-400 font-medium">Total (km²)</th>
-                        <th className="text-right py-2 px-3 text-gray-400 font-medium">Russian %</th>
+                        <th className="text-left py-1.5 px-1 text-gray-400 font-medium w-[20%]" title="Oblast">
+                          Oblast
+                        </th>
+                        <th
+                          className="text-right py-1.5 px-0.5 text-gray-400 font-medium w-[13%]"
+                          title="Russian (km²)"
+                        >
+                          RU
+                        </th>
+                        <th
+                          className="text-right py-1.5 px-0.5 text-gray-400 font-medium w-[11%]"
+                          title="Δ Russian (km²)"
+                        >
+                          ΔRU
+                        </th>
+                        <th
+                          className="text-right py-1.5 px-0.5 text-gray-400 font-medium w-[15%]"
+                          title="Ukrainian (km²)"
+                        >
+                          UA
+                        </th>
+                        <th
+                          className="text-right py-1.5 px-0.5 text-gray-400 font-medium w-[9%]"
+                          title="Disputed (km²)"
+                        >
+                          Dis
+                        </th>
+                        <th
+                          className="text-right py-1.5 px-0.5 text-gray-400 font-medium w-[15%]"
+                          title="Total (km²)"
+                        >
+                          Tot
+                        </th>
+                        <th
+                          className="text-right py-1.5 px-1 text-gray-400 font-medium w-[17%]"
+                          title="Russian %"
+                        >
+                          RU%
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -902,26 +938,32 @@ function App() {
                         const dRuClass =
                           dRussian > 0 ? 'text-red-400' : dRussian < 0 ? 'text-blue-400' : 'text-gray-500';
                         const dRuText = `${dRussian >= 0 ? '+' : ''}${Math.round(dRussian).toLocaleString()}`;
+                        const oblastLabel = OBLAST_NAMES[oblast.oblast] || oblast.oblast;
 
                         return (
                           <tr key={oblast.oblast} className="border-b border-osint-border/50 hover:bg-white/5">
-                            <td className="py-2 px-3 text-white">
-                              {OBLAST_NAMES[oblast.oblast] || oblast.oblast}
+                            <td
+                              className="py-1.5 px-1 text-white truncate max-w-0"
+                              title={oblastLabel}
+                            >
+                              {oblastLabel}
                             </td>
-                            <td className="py-2 px-3 text-right text-red-400">
+                            <td className="py-1.5 px-0.5 text-right tabular-nums text-red-400">
                               {Math.round(oblast.russian_controlled_km2).toLocaleString()}
                             </td>
-                            <td className={`py-2 px-3 text-right font-medium ${dRuClass}`}>{dRuText}</td>
-                            <td className="py-2 px-3 text-right text-blue-400">
+                            <td className={`py-1.5 px-0.5 text-right tabular-nums font-medium ${dRuClass}`}>
+                              {dRuText}
+                            </td>
+                            <td className="py-1.5 px-0.5 text-right tabular-nums text-blue-400">
                               {Math.round(oblast.ukrainian_controlled_km2).toLocaleString()}
                             </td>
-                            <td className="py-2 px-3 text-right text-amber-400">
+                            <td className="py-1.5 px-0.5 text-right tabular-nums text-amber-400">
                               {disputed > 0 ? Math.round(disputed).toLocaleString() : '-'}
                             </td>
-                            <td className="py-2 px-3 text-right text-gray-300">
+                            <td className="py-1.5 px-0.5 text-right tabular-nums text-gray-300">
                               {Math.round(oblastTotal).toLocaleString()}
                             </td>
-                            <td className="py-2 px-3 text-right text-white">
+                            <td className="py-1.5 px-1 text-right tabular-nums text-white">
                               {formatPercent(russianPct)}
                             </td>
                           </tr>
