@@ -352,6 +352,103 @@ export function getCurrentControlTotals(data: DailyTerritoryData[]) {
   };
 }
 
+function parseLocalDateKey(dateKey: string): Date {
+  const isoDateOnlyMatch = dateKey.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoDateOnlyMatch) {
+    return new Date(
+      Number(isoDateOnlyMatch[1]),
+      Number(isoDateOnlyMatch[2]) - 1,
+      Number(isoDateOnlyMatch[3]),
+    );
+  }
+  return new Date(dateKey);
+}
+
+function formatLocalDateKey(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export interface SixMonthNetChangeResult {
+  netKm2: number;
+  netPctOfTotalUkraine: number;
+  totalUkraineAreaKm2: number;
+  windowStartDate: string;
+  endDate: string;
+  snapshotCount: number;
+}
+
+/**
+ * Net territorial movement over ~6 months: cumulative (Δ Russian controlled − Δ Ukrainian controlled)
+ * from the first snapshot on/after (end date − 6 months) through the latest day in `data`.
+ * Percent is net km² as a share of total Ukraine area on the end snapshot.
+ */
+export function getSixMonthNetTerritoryChange(
+  data: DailyTerritoryData[],
+  oblast?: OblastKey,
+): SixMonthNetChangeResult | null {
+  if (data.length < 1) {
+    return null;
+  }
+
+  const endIdx = data.length - 1;
+  const endDay = data[endIdx];
+  const endDate = parseLocalDateKey(endDay.date);
+  const windowStartDate = new Date(endDate);
+  windowStartDate.setMonth(windowStartDate.getMonth() - 6);
+  const startKey = formatLocalDateKey(windowStartDate);
+
+  let startIdx = data.findIndex((d) => d.date >= startKey);
+  if (startIdx < 0) {
+    startIdx = 0;
+  }
+  if (startIdx >= endIdx) {
+    const totalUkraineAreaKm2 = endDay.total_area_km2 || 1;
+    return {
+      netKm2: 0,
+      netPctOfTotalUkraine: 0,
+      totalUkraineAreaKm2,
+      windowStartDate: endDay.date,
+      endDate: endDay.date,
+      snapshotCount: 1,
+    };
+  }
+
+  const startDay = data[startIdx];
+  const totalUkraineAreaKm2 = Math.max(endDay.total_area_km2, 1);
+
+  let netKm2: number;
+
+  if (oblast) {
+    const sRow = startDay.oblasts.find((o) => o.oblast === oblast);
+    const eRow = endDay.oblasts.find((o) => o.oblast === oblast);
+    const r0 = sRow?.russian_controlled_km2 ?? 0;
+    const r1 = eRow?.russian_controlled_km2 ?? 0;
+    const u0 = sRow?.ukrainian_controlled_km2 ?? 0;
+    const u1 = eRow?.ukrainian_controlled_km2 ?? 0;
+    netKm2 = r1 - r0 - (u1 - u0);
+  } else {
+    const r0 = startDay.total_russian_controlled_km2;
+    const r1 = endDay.total_russian_controlled_km2;
+    const u0 = startDay.total_area_km2 - r0 - startDay.total_disputed_km2;
+    const u1 = endDay.total_area_km2 - r1 - endDay.total_disputed_km2;
+    netKm2 = r1 - r0 - (u1 - u0);
+  }
+
+  const netPctOfTotalUkraine = (netKm2 / totalUkraineAreaKm2) * 100;
+
+  return {
+    netKm2,
+    netPctOfTotalUkraine,
+    totalUkraineAreaKm2,
+    windowStartDate: startDay.date,
+    endDate: endDay.date,
+    snapshotCount: endIdx - startIdx + 1,
+  };
+}
+
 /**
  * Get data for a specific oblast over time
  */

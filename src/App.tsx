@@ -1,4 +1,14 @@
 import { useState, useMemo, useEffect } from 'react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  ResponsiveContainer,
+  ReferenceLine,
+  Tooltip,
+  Cell,
+} from 'recharts';
 import { Header } from '@/components/Header';
 import { ChartSection } from '@/components/ChartSection';
 import { TerritoryMap } from '@/components/TerritoryMap';
@@ -12,6 +22,7 @@ import {
   get7DaySummary, 
   getCurrentControlTotals,
   getOblastData,
+  getSixMonthNetTerritoryChange,
 } from '@/utils/calculations';
 import type { DataSource, ViewLevel, OblastKey, DailyTerritoryData } from '@/types';
 
@@ -320,6 +331,15 @@ function App() {
     }
   }, [dataUpToSelected, viewLevel, selectedOblast]);
 
+  const sixMonthNet = useMemo(
+    () =>
+      getSixMonthNetTerritoryChange(
+        dataUpToSelected,
+        viewLevel === 'oblast' ? selectedOblast : undefined,
+      ),
+    [dataUpToSelected, viewLevel, selectedOblast],
+  );
+
   // Use the selected date snapshot for the per-date breakdown panels.
   const todayData = selectedDateData;
 
@@ -342,6 +362,7 @@ function App() {
 
   const formatKm2 = (value: number) => `${Math.round(value).toLocaleString()} km²`;
   const formatPercent = (value: number) => `${Math.round(value).toLocaleString()}%`;
+  const formatPercentOneDecimal = (value: number) => `${value.toFixed(1)}%`;
   const formatDeltaKm2 = (value: number) => `${value >= 0 ? '+' : ''}${Math.round(value).toLocaleString()} km²`;
 
   const dataQualityWarnings = useMemo(() => {
@@ -593,7 +614,6 @@ function App() {
                 const disputedPct = (metrics.current.disputed / totalArea) * 100;
                 const ukrainianPct = 100 - russianPct - disputedPct;
                 const ukrainianTotal = totalArea - metrics.current.russianControlled - metrics.current.disputed;
-                const netChange = metrics.today.russianChange - metrics.today.ukrainianChange;
 
                 const deltaSuffix = isLive
                   ? 'vs previous day'
@@ -601,12 +621,18 @@ function App() {
                     ? `vs ${previousDateLabel}`
                     : 'vs previous available date';
 
+                const netKm2SixMo = sixMonthNet?.netKm2 ?? 0;
+                const netPctSixMo = sixMonthNet?.netPctOfTotalUkraine ?? 0;
+                const sixMonthBarData = [{ name: '6-month net', value: netKm2SixMo }];
+                const sixMonthMag = Math.max(Math.abs(netKm2SixMo), 200);
+                const sixMonthDomain: [number, number] = [-sixMonthMag * 1.25, sixMonthMag * 1.25];
+
                 return (
                   <div className="space-y-3">
                     <div className="flex justify-between">
                       <span className="text-gray-400">Russian Controlled</span>
                       <div className="text-right">
-                        <span className="text-red-400 font-medium">{formatPercent(russianPct)}</span>
+                        <span className="text-red-400 font-medium">{formatPercentOneDecimal(russianPct)}</span>
                         <span className="text-gray-500 text-sm ml-2">({formatKm2(metrics.current.russianControlled)})</span>
                         <p className="text-xs text-red-400/80">{formatDeltaKm2(metrics.today.russianChange)} {deltaSuffix}</p>
                       </div>
@@ -614,7 +640,7 @@ function App() {
                     <div className="flex justify-between">
                       <span className="text-gray-400">Ukrainian Controlled</span>
                       <div className="text-right">
-                        <span className="text-blue-400 font-medium">{formatPercent(ukrainianPct)}</span>
+                        <span className="text-blue-400 font-medium">{formatPercentOneDecimal(ukrainianPct)}</span>
                         <span className="text-gray-500 text-sm ml-2">({formatKm2(ukrainianTotal)})</span>
                         <p className="text-xs text-blue-400/80">{formatDeltaKm2(metrics.today.ukrainianChange)} {deltaSuffix}</p>
                       </div>
@@ -623,7 +649,7 @@ function App() {
                       <div className="flex justify-between">
                         <span className="text-gray-400">Disputed/Contested</span>
                         <div className="text-right">
-                          <span className="text-amber-400 font-medium">{formatPercent(disputedPct)}</span>
+                          <span className="text-amber-400 font-medium">{formatPercentOneDecimal(disputedPct)}</span>
                           <span className="text-gray-500 text-sm ml-2">({formatKm2(metrics.current.disputed)})</span>
                           <p className="text-xs text-amber-400/80">{formatDeltaKm2(metrics.today.disputedChange)} {deltaSuffix}</p>
                         </div>
@@ -634,11 +660,75 @@ function App() {
                         <span className="text-gray-400 font-medium">Total Area</span>
                         <span className="text-white font-bold">{formatKm2(totalArea)}</span>
                       </div>
-                      <div className="flex justify-between mt-2">
-                        <span className="text-gray-400 font-medium">Net Change</span>
-                        <span className={netChange >= 0 ? 'text-red-400 font-semibold' : 'text-blue-400 font-semibold'}>
-                          {formatDeltaKm2(netChange)} {netChange >= 0 ? '(Russian advantage)' : '(Ukrainian advantage)'}
-                        </span>
+                      <div className="mt-4">
+                        <p className="text-gray-400 font-medium mb-1">6-month net change</p>
+                        <p className="text-xs text-gray-500 mb-2">
+                          Δ Russian vs Ukrainian controlled from{' '}
+                          {sixMonthNet ? formatShortDate(sixMonthNet.windowStartDate) : '—'} to{' '}
+                          {sixMonthNet ? formatShortDate(sixMonthNet.endDate) : '—'}
+                          {sixMonthNet && sixMonthNet.snapshotCount > 0
+                            ? ` · ${sixMonthNet.snapshotCount} snapshots`
+                            : ''}
+                        </p>
+                        <p
+                          className={`text-sm font-semibold mb-2 ${
+                            netKm2SixMo >= 0 ? 'text-red-400' : 'text-blue-400'
+                          }`}
+                        >
+                          {netKm2SixMo >= 0 ? '+' : ''}
+                          {Math.round(netKm2SixMo).toLocaleString()} km²
+                          <span className="text-gray-400 font-normal">
+                            {' '}
+                            ({netPctSixMo.toFixed(2)}% of total Ukraine)
+                          </span>
+                          <span className="block text-xs font-normal text-gray-500 mt-0.5">
+                            {netKm2SixMo >= 0 ? 'Net shift toward Russian control' : 'Net shift toward Ukrainian control'}
+                          </span>
+                        </p>
+                        <div className="h-28 w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart
+                              layout="vertical"
+                              data={sixMonthBarData}
+                              margin={{ top: 4, right: 12, left: 4, bottom: 4 }}
+                            >
+                              <XAxis
+                                type="number"
+                                domain={sixMonthDomain}
+                                tick={{ fill: '#6b7280', fontSize: 11 }}
+                                stroke="#475569"
+                              />
+                              <YAxis
+                                type="category"
+                                dataKey="name"
+                                width={108}
+                                tick={{ fill: '#6b7280', fontSize: 11 }}
+                                stroke="#475569"
+                              />
+                              <Tooltip
+                                content={({ active, payload }) => {
+                                  if (!active || !payload?.length) return null;
+                                  const v = Number(payload[0].value);
+                                  return (
+                                    <div className="bg-osint-card border border-osint-border p-3 rounded-lg shadow-xl text-sm">
+                                      <p className="text-gray-200 font-medium">
+                                        {v >= 0 ? '+' : ''}
+                                        {Math.round(v).toLocaleString()} km²
+                                      </p>
+                                      <p className="text-gray-400 mt-1">
+                                        {netPctSixMo.toFixed(2)}% of total Ukraine area
+                                      </p>
+                                    </div>
+                                  );
+                                }}
+                              />
+                              <ReferenceLine x={0} stroke="#64748b" strokeDasharray="4 4" />
+                              <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                                <Cell fill={netKm2SixMo >= 0 ? '#ef4444' : '#3b82f6'} />
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
                       </div>
                     </div>
                   </div>
