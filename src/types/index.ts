@@ -51,10 +51,22 @@ export interface OblastControl {
   disputed_change_km2?: number;
 }
 
+/** Weekly snapshot provenance (see data/history/weekly/*.json). */
+export type TerritorySnapshotSource = 'wayback' | 'daily_nearest' | 'weekly_nearest';
+
 // Daily data structure - per data source
 export interface DailyTerritoryData {
   date: string; // ISO 8601 format: YYYY-MM-DD
   source: DataSource;
+  /** Present on weekly history files from the extractor. */
+  granularity?: 'daily' | 'weekly';
+  snapshot_source?: TerritorySnapshotSource;
+  wayback_timestamp?: string;
+  wayback_capture_date?: string;
+  /** Daily file date when snapshot_source is daily_nearest. */
+  derived_from_daily?: string;
+  /** Other weekly anchor date when snapshot_source is weekly_nearest. */
+  derived_from_weekly?: string;
   // Total Ukraine numbers
   total_russian_controlled_km2: number;
   total_ukrainian_controlled_km2: number;
@@ -102,6 +114,8 @@ export interface ChartDataPoint {
   russianChange: number;
   ukrainianChange: number;
   disputedChange: number;
+  /** Provenance line for weekly repo snapshots (tooltips). */
+  snapshotMeta?: string;
 }
 
 // Aggregated data for weekly/monthly views

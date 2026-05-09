@@ -13,11 +13,14 @@ import {
   AreaChart,
 } from 'recharts';
 import type { DailyTerritoryData, ChartDataPoint, AggregatedData, TimeRange } from '@/types';
-import { 
-  calculateControlData, 
+import {
+  calculateControlData,
   calculateDailyChangeData,
-  aggregateWeekly, 
-  aggregateMonthly
+  aggregateWeekly,
+  aggregateMonthly,
+  aggregatedToControlChartPoints,
+  calculateWeeklyRepoControlChartData,
+  calculateWeeklyRepoChangeChartData,
 } from '@/utils/calculations';
 
 /**
@@ -26,27 +29,53 @@ import {
  * Supports: Russian, Ukrainian, and Disputed territory
  */
 interface TerritoryChartProps {
-  data: DailyTerritoryData[];
+  /** Last N days (or loaded window) of daily/history snapshots. */
+  dailyData: DailyTerritoryData[];
+  /** All `data/history/weekly/*.json` rows, sorted by date ascending (may be empty). */
+  weeklySnapshotData: DailyTerritoryData[];
   timeRange: TimeRange;
   chartType: 'control' | 'change';
 }
 
-export function TerritoryChart({ data, timeRange, chartType }: TerritoryChartProps) {
-  // Prepare data based on time range
+export function TerritoryChart({
+  dailyData,
+  weeklySnapshotData,
+  timeRange,
+  chartType,
+}: TerritoryChartProps) {
+  const useRepoWeekly = weeklySnapshotData.length > 0;
+
   const getChartData = (): (ChartDataPoint | AggregatedData)[] => {
     if (timeRange === 'daily') {
       if (chartType === 'change') {
-        return calculateDailyChangeData(data);
+        return calculateDailyChangeData(dailyData);
       }
-      return calculateControlData(data);
+      return calculateControlData(dailyData);
     }
     if (timeRange === 'weekly') {
-      return aggregateWeekly(data);
+      if (useRepoWeekly) {
+        return chartType === 'control'
+          ? calculateWeeklyRepoControlChartData(weeklySnapshotData)
+          : calculateWeeklyRepoChangeChartData(weeklySnapshotData);
+      }
+      const agg = aggregateWeekly(dailyData);
+      if (chartType === 'control') {
+        return aggregatedToControlChartPoints(agg);
+      }
+      return agg;
     }
-    return aggregateMonthly(data);
+    const agg = aggregateMonthly(dailyData);
+    if (chartType === 'control') {
+      return aggregatedToControlChartPoints(agg);
+    }
+    return agg;
   };
 
   const chartData = getChartData();
+
+  const changeUsesAggregatedBars =
+    chartType === 'change' &&
+    (timeRange === 'monthly' || (timeRange === 'weekly' && !useRepoWeekly));
 
   // Number formatter for chart values
   const formatNumber = (v: number) => {
@@ -59,26 +88,32 @@ export function TerritoryChart({ data, timeRange, chartType }: TerritoryChartPro
   // Custom tooltip with dark theme
   const CustomTooltip = ({ active, payload, label }: {
     active?: boolean;
-    payload?: Array<{ color: string; name: string; value: number }>;
+    payload?: Array<{ color: string; name: string; value: number; payload?: ChartDataPoint }>;
     label?: string;
   }) => {
     if (active && payload && payload.length) {
+      const meta = payload[0]?.payload?.snapshotMeta;
       return (
-        <div className="bg-osint-card border border-osint-border p-3 rounded-lg shadow-xl">
+        <div className="bg-osint-card border border-osint-border p-3 rounded-lg shadow-xl max-w-xs">
           <p className="text-gray-300 font-medium mb-2">{label}</p>
           {payload.map((entry, idx) => (
             <p key={idx} className="text-sm" style={{ color: entry.color }}>
               {entry.name}: {formatNumber(entry.value)} km²
             </p>
           ))}
+          {meta ? (
+            <p className="text-gray-500 text-xs mt-2 leading-snug border-t border-osint-border pt-2">
+              {meta}
+            </p>
+          ) : null}
         </div>
       );
     }
     return null;
   };
 
-  // Get X axis key based on time range
-  const getXKey = () => timeRange === 'daily' ? 'formattedDate' : 'period';
+  // Control charts always use ChartDataPoint with `formattedDate` (including aggregated fallbacks).
+  const controlXKey = 'formattedDate' as const;
 
   // CONTROL LEVELS CHART (Area chart showing total control)
   if (chartType === 'control') {
@@ -100,9 +135,9 @@ export function TerritoryChart({ data, timeRange, chartType }: TerritoryChartPro
             </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
-          <XAxis 
-            dataKey={getXKey()} 
-            stroke="#6b7280" 
+          <XAxis
+            dataKey={controlXKey}
+            stroke="#6b7280"
             fontSize={12}
             tick={{ fill: '#6b7280' }}
           />
@@ -149,30 +184,29 @@ export function TerritoryChart({ data, timeRange, chartType }: TerritoryChartPro
     );
   }
 
-  // DAILY CHANGES CHART
-  // Bar chart for weekly/monthly aggregated changes
-  if (timeRange !== 'daily') {
+  // Bar chart: summed daily deltas per calendar week (fallback) or per calendar month
+  if (changeUsesAggregatedBars) {
     return (
       <ResponsiveContainer width="100%" height={300}>
         <BarChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
-          <XAxis 
-            dataKey="period" 
-            stroke="#6b7280" 
+          <XAxis
+            dataKey="period"
+            stroke="#6b7280"
             fontSize={11}
             tick={{ fill: '#6b7280' }}
             angle={-45}
             textAnchor="end"
             height={60}
           />
-          <YAxis 
-            stroke="#6b7280" 
+          <YAxis
+            stroke="#6b7280"
             fontSize={12}
             tick={{ fill: '#6b7280' }}
             label={{ value: 'km²', angle: -90, position: 'insideLeft', fill: '#6b7280' }}
           />
           <Tooltip content={<CustomTooltip />} />
-          <Legend 
+          <Legend
             wrapperStyle={{ paddingTop: '10px' }}
             formatter={(value) => <span className="text-gray-300">{value}</span>}
           />
@@ -184,58 +218,62 @@ export function TerritoryChart({ data, timeRange, chartType }: TerritoryChartPro
     );
   }
 
-  // Daily line chart for changes
-  return (
-    <ResponsiveContainer width="100%" height={300}>
-      <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
-        <XAxis 
-          dataKey="formattedDate" 
-          stroke="#6b7280" 
-          fontSize={12}
-          tick={{ fill: '#6b7280' }}
-          interval="preserveStartEnd"
-          minTickGap={30}
-        />
-        <YAxis 
-          stroke="#6b7280" 
-          fontSize={12}
-          tick={{ fill: '#6b7280' }}
-          label={{ value: 'km²', angle: -90, position: 'insideLeft', fill: '#6b7280' }}
-        />
-        <Tooltip content={<CustomTooltip />} />
-        <Legend 
-          wrapperStyle={{ paddingTop: '20px' }}
-          formatter={(value) => <span className="text-gray-300">{value}</span>}
-        />
-        <Line
-          type="monotone"
-          dataKey="russianChange"
-          name="Russian Change"
-          stroke="#ef4444"
-          strokeWidth={2}
-          dot={false}
-          activeDot={{ r: 6, fill: '#ef4444' }}
-        />
-        <Line
-          type="monotone"
-          dataKey="ukrainianChange"
-          name="Ukrainian Change"
-          stroke="#3b82f6"
-          strokeWidth={2}
-          dot={false}
-          activeDot={{ r: 6, fill: '#3b82f6' }}
-        />
-        <Line
-          type="monotone"
-          dataKey="disputedChange"
-          name="Disputed Change"
-          stroke="#f59e0b"
-          strokeWidth={2}
-          dot={false}
-          activeDot={{ r: 6, fill: '#f59e0b' }}
-        />
-      </LineChart>
-    </ResponsiveContainer>
-  );
+  // Line chart for daily changes or week-over-week changes from weekly JSON
+  if (chartType === 'change') {
+    return (
+      <ResponsiveContainer width="100%" height={300}>
+        <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
+          <XAxis
+            dataKey="formattedDate"
+            stroke="#6b7280"
+            fontSize={12}
+            tick={{ fill: '#6b7280' }}
+            interval="preserveStartEnd"
+            minTickGap={timeRange === 'weekly' ? 8 : 30}
+          />
+          <YAxis
+            stroke="#6b7280"
+            fontSize={12}
+            tick={{ fill: '#6b7280' }}
+            label={{ value: 'km²', angle: -90, position: 'insideLeft', fill: '#6b7280' }}
+          />
+          <Tooltip content={<CustomTooltip />} />
+          <Legend
+            wrapperStyle={{ paddingTop: '20px' }}
+            formatter={(value) => <span className="text-gray-300">{value}</span>}
+          />
+          <Line
+            type="monotone"
+            dataKey="russianChange"
+            name="Russian Change"
+            stroke="#ef4444"
+            strokeWidth={2}
+            dot={timeRange === 'weekly'}
+            activeDot={{ r: 6, fill: '#ef4444' }}
+          />
+          <Line
+            type="monotone"
+            dataKey="ukrainianChange"
+            name="Ukrainian Change"
+            stroke="#3b82f6"
+            strokeWidth={2}
+            dot={timeRange === 'weekly'}
+            activeDot={{ r: 6, fill: '#3b82f6' }}
+          />
+          <Line
+            type="monotone"
+            dataKey="disputedChange"
+            name="Disputed Change"
+            stroke="#f59e0b"
+            strokeWidth={2}
+            dot={timeRange === 'weekly'}
+            activeDot={{ r: 6, fill: '#f59e0b' }}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    );
+  }
+
+  throw new Error('TerritoryChart: unhandled chart configuration');
 }

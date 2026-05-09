@@ -36,7 +36,10 @@ import type { DataSource, ViewLevel, OblastKey, DailyTerritoryData } from '@/typ
 const DATA_REPO_RAW_BASE_URL = 'https://raw.githubusercontent.com/slimmo2005-gif/ukraine-territory-data';
 const DATA_REPO_API_BASE_URL = 'https://api.github.com/repos/slimmo2005-gif/ukraine-territory-data/contents';
 const DATA_DIRECTORIES = ['data', 'data/history'];
+const DATA_WEEKLY_DIRECTORY = 'data/history/weekly';
 const DATA_REPO_BRANCHES = ['master', 'main'];
+
+type DirectoryJsonListing = { dateKeys: string[]; branch: string };
 
 function toDateKey(value: string): string {
   const trimmed = value.trim();
@@ -83,40 +86,45 @@ async function fetchDataFromUrl(url: string, dateKeyForLog: string): Promise<Dai
 
 type DateKeySources = Map<string, string[]>;
 
+async function discoverJsonDateKeysInDirectory(directory: string): Promise<DirectoryJsonListing | null> {
+  for (const branch of DATA_REPO_BRANCHES) {
+    try {
+      const response = await fetch(`${DATA_REPO_API_BASE_URL}/${directory}?ref=${branch}`, {
+        cache: 'no-store',
+      });
+      if (!response.ok) {
+        continue;
+      }
+      const entries = await response.json() as { name: string; type: string }[];
+      const dateKeys: string[] = [];
+      for (const entry of entries) {
+        if (entry.type !== 'file') continue;
+        const match = entry.name.match(/^(\d{4}-\d{2}-\d{2})\.json$/);
+        if (!match) continue;
+        const dateKey = match[1];
+        if (EXCLUDED_DATES.has(dateKey)) continue;
+        dateKeys.push(dateKey);
+      }
+      dateKeys.sort();
+      return { dateKeys, branch };
+    } catch {
+      // Try next branch.
+    }
+  }
+  return null;
+}
+
 async function discoverDateSources(): Promise<DateKeySources> {
   const dateToUrls: DateKeySources = new Map();
 
   for (const directory of DATA_DIRECTORIES) {
-    let entries: { name: string; type: string }[] | null = null;
-    let resolvedBranch: string | null = null;
-
-    for (const branch of DATA_REPO_BRANCHES) {
-      try {
-        const response = await fetch(`${DATA_REPO_API_BASE_URL}/${directory}?ref=${branch}`, {
-          cache: 'no-store',
-        });
-        if (!response.ok) {
-          continue;
-        }
-        entries = await response.json() as { name: string; type: string }[];
-        resolvedBranch = branch;
-        break;
-      } catch {
-        // Try next branch.
-      }
-    }
-
-    if (!entries || !resolvedBranch) {
+    const listing = await discoverJsonDateKeysInDirectory(directory);
+    if (!listing) {
       continue;
     }
-
-    for (const entry of entries) {
-      if (entry.type !== 'file') continue;
-      const match = entry.name.match(/^(\d{4}-\d{2}-\d{2})\.json$/);
-      if (!match) continue;
-      const dateKey = match[1];
-      if (EXCLUDED_DATES.has(dateKey)) continue;
-      const url = `${DATA_REPO_RAW_BASE_URL}/${resolvedBranch}/${directory}/${entry.name}`;
+    const { dateKeys, branch } = listing;
+    for (const dateKey of dateKeys) {
+      const url = `${DATA_REPO_RAW_BASE_URL}/${branch}/${directory}/${dateKey}.json`;
       const existing = dateToUrls.get(dateKey) || [];
       existing.push(url);
       dateToUrls.set(dateKey, existing);
@@ -124,6 +132,24 @@ async function discoverDateSources(): Promise<DateKeySources> {
   }
 
   return dateToUrls;
+}
+
+/** All weekly anchors under data/history/weekly/ (UTC 7-day series from 2026-01-01), ascending by date key. */
+async function fetchWeeklySnapshotSeries(): Promise<DailyTerritoryData[]> {
+  const listing = await discoverJsonDateKeysInDirectory(DATA_WEEKLY_DIRECTORY);
+  if (!listing) {
+    return [];
+  }
+  const { dateKeys, branch } = listing;
+  const out: DailyTerritoryData[] = [];
+  for (const dateKey of dateKeys) {
+    const url = `${DATA_REPO_RAW_BASE_URL}/${branch}/${DATA_WEEKLY_DIRECTORY}/${dateKey}.json`;
+    const row = await fetchDataFromUrl(url, dateKey);
+    if (row) {
+      out.push(row);
+    }
+  }
+  return out;
 }
 
 async function fetchDateRange(startDate: Date, endDate: Date): Promise<DailyTerritoryData[]> {
@@ -255,6 +281,7 @@ function App() {
   const [viewLevel, setViewLevel] = useState<ViewLevel>('total');
   const [selectedOblast, setSelectedOblast] = useState<OblastKey>('donetsk');
   const [historicalData, setHistoricalData] = useState<DailyTerritoryData[]>([]);
+  const [weeklySnapshotData, setWeeklySnapshotData] = useState<DailyTerritoryData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>('');
@@ -274,9 +301,13 @@ function App() {
         const endDate = new Date();
         const startDate = getDateDaysAgo(90);
         
-        const data = await fetchDateRange(startDate, endDate);
-        
+        const [data, weekly] = await Promise.all([
+          fetchDateRange(startDate, endDate),
+          fetchWeeklySnapshotSeries(),
+        ]);
+
         setHistoricalData(data);
+        setWeeklySnapshotData(weekly);
         if (data.length > 0) {
           setSelectedDate(data[data.length - 1].date);
         }
@@ -1079,12 +1110,14 @@ function App() {
         <section className="mb-10">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <ChartSection
-              data={dataUpToSelected}
+              dailyData={dataUpToSelected}
+              weeklySnapshotData={weeklySnapshotData}
               title="Territory Control Over Time"
               chartType="control"
             />
             <ChartSection
-              data={dataUpToSelected}
+              dailyData={dataUpToSelected}
+              weeklySnapshotData={weeklySnapshotData}
               title="Daily Changes"
               chartType="change"
             />
@@ -1132,7 +1165,10 @@ function App() {
               <p className="text-xs text-gray-500 mt-1">
                 Snapshot date: {selectedDate ? formatShortDate(selectedDate) : 'N/A'}
                 {todayData ? ` • Source updated: ${new Date(todayData.last_updated).toLocaleString()}` : ''}
-                {' '}• {currentData.length} days loaded
+                {' '}• {currentData.length} daily snapshots loaded
+                {weeklySnapshotData.length > 0
+                  ? ` • ${weeklySnapshotData.length} weekly anchors`
+                  : ''}
               </p>
               <p className="text-xs text-gray-600 mt-1">
                 <a 
@@ -1188,6 +1224,12 @@ function App() {
               <li>Source: DeepStateMap snapshots.</li>
               <li>Historical files are preprocessed for consistency.</li>
               <li>Some dates are missing because no source snapshot exists for that day.</li>
+              <li>
+                Weekly charts (when available) use <code className="text-gray-400">data/history/weekly/</code>:
+                one point every 7 days in UTC from 2026-01-01, with week-over-week deltas vs the prior weekly
+                file. Anchor dates are labels; tooltips note Wayback or derived-from-daily/weekly when the
+                extractor filled a point from a nearby capture.
+              </li>
               <li>Values are estimates from map geometry — not official government accounting.</li>
               <li>Use Prev / Next to step between available dates, or pick any date and we&apos;ll snap to the nearest snapshot.</li>
               <li>Click &quot;Jump to latest&quot; to return to the live view.</li>

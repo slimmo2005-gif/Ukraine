@@ -111,6 +111,77 @@ export function calculateDailyChangeData(data: DailyTerritoryData[]): ChartDataP
   });
 }
 
+/** Short provenance text for weekly JSON rows (tooltips / quality hints). */
+export function describeWeeklyRowProvenance(day: DailyTerritoryData): string | undefined {
+  if (day.granularity !== 'weekly' && !day.snapshot_source) {
+    return undefined;
+  }
+  const parts: string[] = [];
+  if (day.snapshot_source === 'wayback') {
+    parts.push('Internet Archive snapshot of DeepState API');
+    if (day.wayback_capture_date) {
+      parts.push(`capture ${day.wayback_capture_date}`);
+    } else if (day.wayback_timestamp) {
+      parts.push(`timestamp ${day.wayback_timestamp}`);
+    }
+  } else if (day.snapshot_source === 'daily_nearest' && day.derived_from_daily) {
+    parts.push(`Anchor label ${day.date}; values from daily ${day.derived_from_daily}`);
+  } else if (day.snapshot_source === 'weekly_nearest' && day.derived_from_weekly) {
+    parts.push(`Anchor label ${day.date}; bridged from weekly ${day.derived_from_weekly}`);
+  } else if (day.snapshot_source) {
+    parts.push(`Source: ${day.snapshot_source}`);
+  }
+  return parts.length ? parts.join(' · ') : undefined;
+}
+
+/**
+ * Week-over-week change series from weekly history files (uses JSON *_change_km2; earliest week may be 0).
+ */
+export function calculateWeeklyRepoChangeChartData(weekly: DailyTerritoryData[]): ChartDataPoint[] {
+  return weekly.map((day) => {
+    const ukrainianControlled =
+      day.total_area_km2 - day.total_russian_controlled_km2 - day.total_disputed_km2;
+    return {
+      date: day.date,
+      formattedDate: formatDate(day.date),
+      russianControlled: day.total_russian_controlled_km2,
+      ukrainianControlled,
+      disputed: day.total_disputed_km2,
+      russianChange: day.russian_change_km2 ?? 0,
+      ukrainianChange: day.ukrainian_change_km2 ?? 0,
+      disputedChange: day.disputed_change_km2 ?? 0,
+      snapshotMeta: describeWeeklyRowProvenance(day),
+    };
+  });
+}
+
+/** Control levels for weekly repo snapshots (adjacent points are ~7d apart); adds provenance for tooltips. */
+export function calculateWeeklyRepoControlChartData(weekly: DailyTerritoryData[]): ChartDataPoint[] {
+  const base = calculateControlData(weekly);
+  return base.map((point, i) => ({
+    ...point,
+    snapshotMeta: describeWeeklyRowProvenance(weekly[i]),
+  }));
+}
+
+/** Map aggregated periods to control chart points (Area chart expects russianControlled, not russianAvg). */
+export function aggregatedToControlChartPoints(agg: AggregatedData[]): ChartDataPoint[] {
+  return agg.map((a) => {
+    const isIsoWeek = /^\d{4}-W\d{2}$/.test(a.period);
+    const formattedDate = isIsoWeek ? a.period : formatPeriod(a.period, 'monthly');
+    return {
+      date: a.period,
+      formattedDate,
+      russianControlled: a.russianAvg,
+      ukrainianControlled: a.ukrainianAvg,
+      disputed: a.disputedAvg,
+      russianChange: a.russianChangeSum,
+      ukrainianChange: a.ukrainianChangeSum,
+      disputedChange: a.disputedChangeSum,
+    };
+  });
+}
+
 /**
  * Calculates 7-day rolling averages for changes
  */
