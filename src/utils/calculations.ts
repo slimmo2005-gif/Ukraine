@@ -364,6 +364,55 @@ function parseLocalDateKey(dateKey: string): Date {
   return new Date(dateKey);
 }
 
+function formatLocalDateKey(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export type OblastRussianChangePeriod = 'day' | 'week' | 'month';
+
+/**
+ * Change in Russian-controlled km² for one oblast at `endIndex` in `data` (sorted by date).
+ * - day: vs previous snapshot (derived delta; first day uses JSON fallback).
+ * - week / month: vs earliest snapshot on or after (end date − 7 / − 30 calendar days), within loaded data.
+ */
+export function getOblastRussianChangeKm2(
+  data: DailyTerritoryData[],
+  oblast: OblastKey,
+  period: OblastRussianChangePeriod,
+  endIndex: number,
+): number {
+  if (endIndex < 0 || endIndex >= data.length) {
+    return 0;
+  }
+  if (period === 'day') {
+    return getDerivedOblastChanges(data, endIndex, oblast).russianChange;
+  }
+
+  const daysBack = period === 'week' ? 7 : 30;
+  const endDay = data[endIndex];
+  const endDate = parseLocalDateKey(endDay.date);
+  const windowStart = new Date(endDate);
+  windowStart.setDate(windowStart.getDate() - daysBack);
+  const startKey = formatLocalDateKey(windowStart);
+
+  let startIdx = 0;
+  for (let i = 0; i <= endIndex; i++) {
+    if (data[i].date >= startKey) {
+      startIdx = i;
+      break;
+    }
+  }
+
+  const startRow = data[startIdx].oblasts.find((o) => o.oblast === oblast);
+  const endRow = data[endIndex].oblasts.find((o) => o.oblast === oblast);
+  const r0 = startRow?.russian_controlled_km2 ?? 0;
+  const r1 = endRow?.russian_controlled_km2 ?? 0;
+  return r1 - r0;
+}
+
 function shiftCalendarMonth(year: number, month1Based: number, delta: number): { year: number; month: number } {
   const d = new Date(year, month1Based - 1 + delta, 1);
   return { year: d.getFullYear(), month: d.getMonth() + 1 };

@@ -23,6 +23,8 @@ import {
   getCurrentControlTotals,
   getOblastData,
   getLastSixCompletedMonthsNetMovement,
+  getOblastRussianChangeKm2,
+  type OblastRussianChangePeriod,
 } from '@/utils/calculations';
 import type { DataSource, ViewLevel, OblastKey, DailyTerritoryData } from '@/types';
 
@@ -266,6 +268,8 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [showHistoryHelp, setShowHistoryHelp] = useState<boolean>(false);
+  const [oblastRussianChangePeriod, setOblastRussianChangePeriod] =
+    useState<OblastRussianChangePeriod>('day');
 
   // Fetch data on mount
   useEffect(() => {
@@ -807,15 +811,50 @@ function App() {
 
             {viewLevel === 'total' && (
               <div className="bg-osint-card rounded-lg p-6 border border-osint-border">
-                <h3 className="text-lg font-semibold text-white mb-4">
-                  Oblast Breakdown - Russian Controlled Territory
-                </h3>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-white">
+                    Oblast Breakdown - Russian Controlled Territory
+                  </h3>
+                  <div className="flex flex-col items-start gap-1">
+                    <span className="text-[10px] uppercase tracking-wide text-gray-500">Δ Russian area</span>
+                    <div className="flex flex-wrap gap-1">
+                      {(['day', 'week', 'month'] as const).map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setOblastRussianChangePeriod(p)}
+                          className={`px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
+                            oblastRussianChangePeriod === p
+                              ? 'bg-ukraine-blue/25 text-white border-ukraine-blue/50'
+                              : 'bg-osint-dark text-gray-400 border-osint-border hover:text-gray-200'
+                          }`}
+                          aria-pressed={oblastRussianChangePeriod === p}
+                          title={
+                            p === 'day'
+                              ? 'Vs previous snapshot'
+                              : p === 'week'
+                                ? 'Vs ~7 days (first snapshot in window)'
+                                : 'Vs ~30 days (first snapshot in window)'
+                          }
+                        >
+                          {p === 'day' ? 'Day' : p === 'week' ? 'Week' : 'Month'}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-gray-600 max-w-[14rem] leading-tight">
+                      {oblastRussianChangePeriod === 'day' && 'Previous available snapshot.'}
+                      {oblastRussianChangePeriod === 'week' && 'Earliest snapshot on or after 7 days before viewed date.'}
+                      {oblastRussianChangePeriod === 'month' && 'Earliest snapshot on or after 30 days before viewed date.'}
+                    </p>
+                  </div>
+                </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-osint-border">
                         <th className="text-left py-2 px-3 text-gray-400 font-medium">Oblast</th>
                         <th className="text-right py-2 px-3 text-gray-400 font-medium">Russian (km²)</th>
+                        <th className="text-right py-2 px-3 text-gray-400 font-medium">Δ Russian (km²)</th>
                         <th className="text-right py-2 px-3 text-gray-400 font-medium">Ukrainian (km²)</th>
                         <th className="text-right py-2 px-3 text-gray-400 font-medium">Disputed (km²)</th>
                         <th className="text-right py-2 px-3 text-gray-400 font-medium">Total (km²)</th>
@@ -829,6 +868,19 @@ function App() {
                           oblast.russian_controlled_km2 + oblast.ukrainian_controlled_km2 + disputed;
                         const oblastTotal = oblast.total_area_km2 > 0 ? oblast.total_area_km2 : fallbackControlledTotal;
                         const russianPct = (oblast.russian_controlled_km2 / Math.max(oblastTotal, 1)) * 100;
+                        const endIdx = dataUpToSelected.length > 0 ? dataUpToSelected.length - 1 : -1;
+                        const dRussian =
+                          endIdx >= 0
+                            ? getOblastRussianChangeKm2(
+                                dataUpToSelected,
+                                oblast.oblast,
+                                oblastRussianChangePeriod,
+                                endIdx,
+                              )
+                            : 0;
+                        const dRuClass =
+                          dRussian > 0 ? 'text-red-400' : dRussian < 0 ? 'text-blue-400' : 'text-gray-500';
+                        const dRuText = `${dRussian >= 0 ? '+' : ''}${Math.round(dRussian).toLocaleString()}`;
 
                         return (
                           <tr key={oblast.oblast} className="border-b border-osint-border/50 hover:bg-white/5">
@@ -838,6 +890,7 @@ function App() {
                             <td className="py-2 px-3 text-right text-red-400">
                               {Math.round(oblast.russian_controlled_km2).toLocaleString()}
                             </td>
+                            <td className={`py-2 px-3 text-right font-medium ${dRuClass}`}>{dRuText}</td>
                             <td className="py-2 px-3 text-right text-blue-400">
                               {Math.round(oblast.ukrainian_controlled_km2).toLocaleString()}
                             </td>
