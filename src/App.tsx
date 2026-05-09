@@ -659,23 +659,22 @@ function App() {
                         <th className="text-right py-2 px-3 text-gray-400 font-medium">Russian</th>
                         <th className="text-right py-2 px-3 text-gray-400 font-medium">Ukrainian</th>
                         <th className="text-right py-2 px-3 text-gray-400 font-medium">Disputed</th>
+                        <th className="text-right py-2 px-3 text-gray-400 font-medium">Total</th>
                         <th className="text-right py-2 px-3 text-gray-400 font-medium">Russian %</th>
                       </tr>
                     </thead>
                     <tbody>
                       {activeOblasts.map((oblast) => {
                         const disputed = oblast.disputed_controlled_km2 || 0;
-                        const denominator = Math.max(
-                          oblast.total_area_km2,
-                          oblast.russian_controlled_km2 + oblast.ukrainian_controlled_km2 + disputed,
-                          1,
-                        );
-                        const russianPct = (oblast.russian_controlled_km2 / denominator) * 100;
+                        const fallbackControlledTotal =
+                          oblast.russian_controlled_km2 + oblast.ukrainian_controlled_km2 + disputed;
+                        const oblastTotal = oblast.total_area_km2 > 0 ? oblast.total_area_km2 : fallbackControlledTotal;
+                        const russianPct = (oblast.russian_controlled_km2 / Math.max(oblastTotal, 1)) * 100;
 
                         return (
                           <tr key={oblast.oblast} className="border-b border-osint-border/50 hover:bg-white/5">
                             <td className="py-2 px-3 text-white">
-                              {OBLAST_NAMES[oblast.oblast]}
+                              {OBLAST_NAMES[oblast.oblast] || oblast.oblast}
                             </td>
                             <td className="py-2 px-3 text-right text-red-400">
                               {formatKm2(oblast.russian_controlled_km2)}
@@ -685,6 +684,9 @@ function App() {
                             </td>
                             <td className="py-2 px-3 text-right text-amber-400">
                               {disputed > 0 ? formatKm2(disputed) : '-'}
+                            </td>
+                            <td className="py-2 px-3 text-right text-gray-300">
+                              {formatKm2(oblastTotal)}
                             </td>
                             <td className="py-2 px-3 text-right text-white">
                               {formatPercent(russianPct)}
