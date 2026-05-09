@@ -417,6 +417,25 @@ function App() {
     return crimeaRow ? [crimeaRow, ...filtered] : filtered;
   }, [todayData]);
 
+  const oblastTableRuTotals = useMemo(() => {
+    if (!activeOblasts.length || !dataUpToSelected.length) {
+      return { totalRuKm2: 0, totalDeltaRuKm2: 0 };
+    }
+    const endIdx = dataUpToSelected.length - 1;
+    let totalRuKm2 = 0;
+    let totalDeltaRuKm2 = 0;
+    for (const oblast of activeOblasts) {
+      totalRuKm2 += oblast.russian_controlled_km2;
+      totalDeltaRuKm2 += getOblastRussianChangeKm2(
+        dataUpToSelected,
+        oblast.oblast,
+        oblastRussianChangePeriod,
+        endIdx,
+      );
+    }
+    return { totalRuKm2, totalDeltaRuKm2 };
+  }, [activeOblasts, dataUpToSelected, oblastRussianChangePeriod]);
+
   const formatKm2 = (value: number) => `${Math.round(value).toLocaleString()} km²`;
   const formatPercent = (value: number) => `${Math.round(value).toLocaleString()}%`;
   const formatPercentOneDecimal = (value: number) => `${value.toFixed(1)}%`;
@@ -970,7 +989,86 @@ function App() {
                         );
                       })}
                     </tbody>
+                    <tfoot>
+                      <tr className="border-t border-osint-border bg-white/[0.03]">
+                        <td className="py-1.5 px-1 text-gray-300 font-medium">Total</td>
+                        <td className="py-1.5 px-0.5 text-right tabular-nums font-medium text-red-400">
+                          {Math.round(oblastTableRuTotals.totalRuKm2).toLocaleString()}
+                        </td>
+                        <td
+                          className={`py-1.5 px-0.5 text-right tabular-nums font-medium ${
+                            oblastTableRuTotals.totalDeltaRuKm2 > 0
+                              ? 'text-red-400'
+                              : oblastTableRuTotals.totalDeltaRuKm2 < 0
+                                ? 'text-blue-400'
+                                : 'text-gray-500'
+                          }`}
+                        >
+                          {oblastTableRuTotals.totalDeltaRuKm2 >= 0 ? '+' : ''}
+                          {Math.round(oblastTableRuTotals.totalDeltaRuKm2).toLocaleString()}
+                        </td>
+                        <td className="py-1.5 px-0.5 text-right text-gray-600">—</td>
+                        <td className="py-1.5 px-0.5 text-right text-gray-600">—</td>
+                        <td className="py-1.5 px-0.5 text-right text-gray-600">—</td>
+                        <td className="py-1.5 px-1 text-right text-gray-600">—</td>
+                      </tr>
+                    </tfoot>
                   </table>
+                </div>
+                <div
+                  className="mt-3 pt-3 border-t border-osint-border/60 text-[10px] sm:text-[11px] text-gray-500 leading-snug space-y-1.5"
+                  aria-label="Column legend"
+                >
+                  <p className="text-gray-400 font-medium text-[10px] uppercase tracking-wide">
+                    Legend
+                  </p>
+                  <ul className="grid gap-1 sm:grid-cols-2 sm:gap-x-4 sm:gap-y-1 list-none p-0 m-0">
+                    <li className="flex gap-1.5 items-start">
+                      <span className="mt-0.5 h-2 w-2 shrink-0 rounded-sm bg-red-400" aria-hidden />
+                      <span>
+                        <span className="text-gray-300">RU</span> — Russian-controlled area (km²) for the
+                        viewed date.
+                      </span>
+                    </li>
+                    <li className="flex gap-1.5 items-start">
+                      <span className="mt-0.5 flex h-2 w-2 shrink-0 rounded-sm border border-gray-500 bg-osint-dark" aria-hidden />
+                      <span>
+                        <span className="text-gray-300">ΔRU</span> — Change in Russian-controlled area for
+                        the selected period (Day / Week / Month).{' '}
+                        <span className="text-red-400">Red</span> = net gain,{' '}
+                        <span className="text-blue-400">blue</span> = net loss, gray = no change.
+                      </span>
+                    </li>
+                    <li className="flex gap-1.5 items-start">
+                      <span className="mt-0.5 h-2 w-2 shrink-0 rounded-sm bg-blue-400" aria-hidden />
+                      <span>
+                        <span className="text-gray-300">UA</span> — Ukrainian-controlled area (km²).
+                      </span>
+                    </li>
+                    <li className="flex gap-1.5 items-start">
+                      <span className="mt-0.5 h-2 w-2 shrink-0 rounded-sm bg-amber-400" aria-hidden />
+                      <span>
+                        <span className="text-gray-300">Dis</span> — Disputed / contested area (km²); “—” if
+                        none reported.
+                      </span>
+                    </li>
+                    <li className="flex gap-1.5 items-start">
+                      <span className="mt-0.5 h-2 w-2 shrink-0 rounded-sm bg-gray-400" aria-hidden />
+                      <span>
+                        <span className="text-gray-300">Tot</span> — Total oblast land area (km²).
+                      </span>
+                    </li>
+                    <li className="flex gap-1.5 items-start">
+                      <span className="mt-0.5 h-2 w-2 shrink-0 rounded-sm bg-white" aria-hidden />
+                      <span>
+                        <span className="text-gray-300">RU%</span> — Russian share of oblast area (RU ÷ Tot).
+                      </span>
+                    </li>
+                  </ul>
+                  <p className="text-gray-600 pt-0.5">
+                    <span className="text-gray-300">Total row</span> — Sum of RU and ΔRU across the oblasts
+                    shown in the table (same rows as above).
+                  </p>
                 </div>
               </div>
             )}
