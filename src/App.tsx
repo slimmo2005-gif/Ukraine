@@ -209,19 +209,25 @@ function formatShortDate(dateKey: string): string {
 
 const MONTH_AXIS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-/** Recharts LabelList content: km² + % above positive bars, below negative; “—” if no data. */
+type MonthlyBarPayload = {
+  hasData: boolean;
+  fullNet: number | null;
+  pct: number | null;
+};
+
+/** Recharts LabelList `content` render props (subset + payload). */
 function MonthlyMovementBarLabels(props: {
   x?: number;
   y?: number;
   width?: number;
   height?: number;
-  payload?: {
-    hasData: boolean;
-    fullNet: number | null;
-    pct: number | null;
-  };
+  payload?: MonthlyBarPayload;
 }) {
-  const { x = 0, y = 0, width = 0, height = 0, payload } = props;
+  const x = Number(props.x ?? 0);
+  const y = Number(props.y ?? 0);
+  const width = Number(props.width ?? 0);
+  const height = Number(props.height ?? 0);
+  const payload = props.payload;
   const cx = x + width / 2;
 
   if (!payload?.hasData || payload.fullNet === null) {
@@ -235,13 +241,15 @@ function MonthlyMovementBarLabels(props: {
   const net = payload.fullNet;
   const pct = payload.pct ?? 0;
   const sign = net >= 0 ? '+' : '';
-  const isPositive = net >= 0;
-  const labelY = isPositive ? y - 6 : y + Math.max(height, 0) + 16;
+  const isPositive = net > 0;
+  const isNegative = net < 0;
+  const kmColor = isPositive ? '#f87171' : isNegative ? '#60a5fa' : '#d1d5db';
+  const labelY = isPositive || net === 0 ? y - 6 : y + Math.max(height, 0) + 16;
 
   return (
-    <text x={cx} y={labelY} textAnchor="middle" fill="#e5e7eb" fontSize={10}>
-      <tspan x={cx} dy={0}>{`${sign}${Math.round(net).toLocaleString()} km²`}</tspan>
-      <tspan x={cx} dy={11} fill="#9ca3af" fontSize={9}>{`${pct.toFixed(2)}%`}</tspan>
+    <text x={cx} y={labelY} textAnchor="middle" fontSize={10}>
+      <tspan x={cx} dy={0} fill={kmColor}>{`${sign}${Math.round(net).toLocaleString()} km²`}</tspan>
+      <tspan x={cx} dy={12} fill="#9ca3af" fontSize={9}>{`${pct.toFixed(2)}%`}</tspan>
     </text>
   );
 }
@@ -701,7 +709,8 @@ function App() {
                           Bar = first vs last snapshot in the month. % = share of total Ukraine (last snapshot).
                         </p>
                         {(() => {
-                          const barFill = '#4a8fb8';
+                          const RUSSIAN_BAR = '#ef4444';
+                          const UKRAINIAN_BAR = '#3b82f6';
                           const chartRows = completedMonthNets.map((row) => {
                             const canPlot = row.snapshotCount >= 2;
                             const [yy, mm] = row.monthKey.split('-');
@@ -723,11 +732,11 @@ function App() {
                           const yDomain: [number, number] = [-yMax, yMax];
 
                           return (
-                            <div className="h-[148px] w-full">
+                            <div className="h-[160px] w-full">
                               <ResponsiveContainer width="100%" height="100%">
                                 <BarChart
                                   data={chartRows}
-                                  margin={{ top: 36, right: 6, left: -18, bottom: 4 }}
+                                  margin={{ top: 42, right: 8, left: 8, bottom: 4 }}
                                   barCategoryGap="18%"
                                 >
                                   <XAxis
@@ -737,15 +746,7 @@ function App() {
                                     axisLine={{ stroke: '#475569' }}
                                     tickLine={false}
                                   />
-                                  <YAxis
-                                    tick={{ fill: '#9ca3af', fontSize: 10 }}
-                                    stroke="#475569"
-                                    width={44}
-                                    tickLine={false}
-                                    axisLine={false}
-                                    domain={yDomain}
-                                    tickFormatter={(v) => Math.round(Number(v)).toLocaleString()}
-                                  />
+                                  <YAxis hide domain={yDomain} />
                                   <Tooltip
                                     content={({ active, payload }) => {
                                       if (!active || !payload?.length) return null;
@@ -770,11 +771,41 @@ function App() {
                                     }}
                                   />
                                   <ReferenceLine y={0} stroke="#64748b" strokeWidth={1} />
-                                  <Bar dataKey="netKm2" fill={barFill} maxBarSize={44} radius={[2, 2, 0, 0]}>
-                                    {chartRows.map((entry) => (
-                                      <Cell key={entry.monthShort} fill={barFill} fillOpacity={entry.hasData ? 1 : 0.25} />
-                                    ))}
-                                    <LabelList content={<MonthlyMovementBarLabels />} />
+                                  <Bar dataKey="netKm2" maxBarSize={44} radius={[2, 2, 0, 0]}>
+                                    {chartRows.map((entry) => {
+                                      let fill = '#64748b';
+                                      let opacity = 0.35;
+                                      if (entry.hasData && entry.fullNet !== null) {
+                                        opacity = 1;
+                                        if (entry.fullNet > 0) fill = RUSSIAN_BAR;
+                                        else if (entry.fullNet < 0) fill = UKRAINIAN_BAR;
+                                        else fill = '#94a3b8';
+                                      }
+                                      return (
+                                        <Cell key={entry.monthShort} fill={fill} fillOpacity={opacity} />
+                                      );
+                                    })}
+                                    <LabelList
+                                      dataKey="netKm2"
+                                      content={(labelProps) => {
+                                        const lp = labelProps as {
+                                          x?: number | string;
+                                          y?: number | string;
+                                          width?: number | string;
+                                          height?: number | string;
+                                          payload?: MonthlyBarPayload;
+                                        };
+                                        return (
+                                          <MonthlyMovementBarLabels
+                                            x={Number(lp.x ?? 0)}
+                                            y={Number(lp.y ?? 0)}
+                                            width={Number(lp.width ?? 0)}
+                                            height={Number(lp.height ?? 0)}
+                                            payload={lp.payload}
+                                          />
+                                        );
+                                      }}
+                                    />
                                   </Bar>
                                 </BarChart>
                               </ResponsiveContainer>
