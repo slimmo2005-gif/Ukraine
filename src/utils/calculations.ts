@@ -539,6 +539,19 @@ function yearlyAnchorsOnOrBefore(
 }
 
 /**
+ * Public invasion-era series start for 2022: first chart/summary "year" is Feb 22 → end of 2022, not Jan 1.
+ * (Aligns with first available DeepState-era snapshots; adjust if your repo uses a different anchor.)
+ */
+const UKRAINE_WAR_SERIES_START_ISO = '2022-02-22';
+
+function warStartStateFromWeekly(weeklySortedAsc: DailyTerritoryData[]): DailyTerritoryData | null {
+  if (weeklySortedAsc.length < 1) {
+    return null;
+  }
+  return interpolateTerritoryAtDate(weeklySortedAsc, UKRAINE_WAR_SERIES_START_ISO);
+}
+
+/**
  * Latest weekly snapshot date per calendar year (only years with ≥1 weekly file on/before `selectedDate`).
  */
 function getLastWeeklyAnchorPerYear(
@@ -847,16 +860,24 @@ export function getOblastRussianChangeKm2(
   if (
     period === 'year' &&
     options?.weeklySnapshots &&
-    options.weeklySnapshots.length >= 2 &&
+    options.weeklySnapshots.length >= 1 &&
     options.selectedDate
   ) {
-    const rows = getLastWeeklyAnchorPerYear(options.weeklySnapshots, options.selectedDate);
+    const sorted = [...options.weeklySnapshots].sort((a, b) => a.date.localeCompare(b.date));
+    const rows = getLastWeeklyAnchorPerYear(sorted, options.selectedDate);
     if (rows.length >= 2) {
       return deltaRussianOblastPair(
         rows[rows.length - 2].anchor,
         rows[rows.length - 1].anchor,
         oblast,
       );
+    }
+    if (rows.length === 1 && rows[0].year === 2022) {
+      const start = warStartStateFromWeekly(sorted);
+      const end = rows[0].anchor;
+      if (start && end.date >= UKRAINE_WAR_SERIES_START_ISO) {
+        return deltaRussianOblastPair(start, end, oblast);
+      }
     }
   }
 
@@ -1024,21 +1045,35 @@ function tryNationalYoYFromWeekly(
   weeklySnapshots: DailyTerritoryData[],
   selectedDate: string,
 ): SummaryDeltaLine | null {
-  if (weeklySnapshots.length < 2 || !selectedDate) {
+  if (weeklySnapshots.length < 1 || !selectedDate) {
     return null;
   }
-  const rows = getLastWeeklyAnchorPerYear(weeklySnapshots, selectedDate);
-  if (rows.length < 2) {
-    return null;
+  const sorted = [...weeklySnapshots].sort((a, b) => a.date.localeCompare(b.date));
+  const rows = getLastWeeklyAnchorPerYear(sorted, selectedDate);
+  if (rows.length >= 2) {
+    const prev = rows[rows.length - 2];
+    const last = rows[rows.length - 1];
+    return {
+      russianChange: deltaRussianNationalPair(prev.anchor, last.anchor),
+      ukrainianChange: deltaUkrainianNationalPair(prev.anchor, last.anchor),
+      disputedChange: last.anchor.total_disputed_km2 - prev.anchor.total_disputed_km2,
+      compareSuffix: `YoY vs ${prev.anchor.date} → ${last.anchor.date} (weekly year-end anchors)`,
+    };
   }
-  const prev = rows[rows.length - 2];
-  const last = rows[rows.length - 1];
-  return {
-    russianChange: deltaRussianNationalPair(prev.anchor, last.anchor),
-    ukrainianChange: deltaUkrainianNationalPair(prev.anchor, last.anchor),
-    disputedChange: last.anchor.total_disputed_km2 - prev.anchor.total_disputed_km2,
-    compareSuffix: `YoY vs ${prev.anchor.date} → ${last.anchor.date} (weekly year-end anchors)`,
-  };
+  if (rows.length === 1 && rows[0].year === 2022) {
+    const start = warStartStateFromWeekly(sorted);
+    const end = rows[0].anchor;
+    if (!start || end.date < UKRAINE_WAR_SERIES_START_ISO) {
+      return null;
+    }
+    return {
+      russianChange: deltaRussianNationalPair(start, end),
+      ukrainianChange: deltaUkrainianNationalPair(start, end),
+      disputedChange: end.total_disputed_km2 - start.total_disputed_km2,
+      compareSuffix: `2022 (war series): ${UKRAINE_WAR_SERIES_START_ISO} → ${end.date} (weekly)`,
+    };
+  }
+  return null;
 }
 
 function tryOblastYoYFromWeekly(
@@ -1046,23 +1081,39 @@ function tryOblastYoYFromWeekly(
   selectedDate: string,
   oblast: OblastKey,
 ): SummaryDeltaLine | null {
-  if (weeklySnapshots.length < 2 || !selectedDate) {
+  if (weeklySnapshots.length < 1 || !selectedDate) {
     return null;
   }
-  const rows = getLastWeeklyAnchorPerYear(weeklySnapshots, selectedDate);
-  if (rows.length < 2) {
-    return null;
+  const sorted = [...weeklySnapshots].sort((a, b) => a.date.localeCompare(b.date));
+  const rows = getLastWeeklyAnchorPerYear(sorted, selectedDate);
+  if (rows.length >= 2) {
+    const prev = rows[rows.length - 2];
+    const last = rows[rows.length - 1];
+    const aRow = prev.anchor.oblasts.find((o) => o.oblast === oblast);
+    const bRow = last.anchor.oblasts.find((o) => o.oblast === oblast);
+    return {
+      russianChange: (bRow?.russian_controlled_km2 ?? 0) - (aRow?.russian_controlled_km2 ?? 0),
+      ukrainianChange: (bRow?.ukrainian_controlled_km2 ?? 0) - (aRow?.ukrainian_controlled_km2 ?? 0),
+      disputedChange: (bRow?.disputed_controlled_km2 ?? 0) - (aRow?.disputed_controlled_km2 ?? 0),
+      compareSuffix: `YoY vs ${prev.anchor.date} → ${last.anchor.date} (weekly year-end)`,
+    };
   }
-  const prev = rows[rows.length - 2];
-  const last = rows[rows.length - 1];
-  const aRow = prev.anchor.oblasts.find((o) => o.oblast === oblast);
-  const bRow = last.anchor.oblasts.find((o) => o.oblast === oblast);
-  return {
-    russianChange: (bRow?.russian_controlled_km2 ?? 0) - (aRow?.russian_controlled_km2 ?? 0),
-    ukrainianChange: (bRow?.ukrainian_controlled_km2 ?? 0) - (aRow?.ukrainian_controlled_km2 ?? 0),
-    disputedChange: (bRow?.disputed_controlled_km2 ?? 0) - (aRow?.disputed_controlled_km2 ?? 0),
-    compareSuffix: `YoY vs ${prev.anchor.date} → ${last.anchor.date} (weekly year-end)`,
-  };
+  if (rows.length === 1 && rows[0].year === 2022) {
+    const start = warStartStateFromWeekly(sorted);
+    const end = rows[0].anchor;
+    if (!start || end.date < UKRAINE_WAR_SERIES_START_ISO) {
+      return null;
+    }
+    return {
+      russianChange: deltaRussianOblastPair(start, end, oblast),
+      ukrainianChange: deltaUkrainianOblastPair(start, end, oblast),
+      disputedChange:
+        (end.oblasts.find((o) => o.oblast === oblast)?.disputed_controlled_km2 ?? 0) -
+        (start.oblasts.find((o) => o.oblast === oblast)?.disputed_controlled_km2 ?? 0),
+      compareSuffix: `2022 (war series): ${UKRAINE_WAR_SERIES_START_ISO} → ${end.date} (weekly)`,
+    };
+  }
+  return null;
 }
 
 /**
@@ -1417,11 +1468,27 @@ function getYoYNetMovementRowsFromWeekly(
   maxBars: number,
   deltaMode: NetMovementDeltaMode,
 ): NetMovementBarRow[] {
-  const rows = getLastWeeklyAnchorPerYear(weeklySortedAsc, selectedDate);
-  if (rows.length < 2) {
-    return [];
-  }
+  const sorted = [...weeklySortedAsc].sort((a, b) => a.date.localeCompare(b.date));
+  const rows = getLastWeeklyAnchorPerYear(sorted, selectedDate);
   const pairs: NetMovementBarRow[] = [];
+
+  const row2022 = rows.find((r) => r.year === 2022);
+  if (row2022 && row2022.anchor.date >= UKRAINE_WAR_SERIES_START_ISO) {
+    const warStart = warStartStateFromWeekly(sorted);
+    if (warStart && row2022.anchor.date >= warStart.date) {
+      const netKm2 = pairDelta(warStart, row2022.anchor, deltaMode, oblast);
+      const totalUkraine = Math.max(row2022.anchor.total_area_km2, 1);
+      pairs.push({
+        periodLabel: '2022',
+        netKm2,
+        fullNet: netKm2,
+        pct: (netKm2 / totalUkraine) * 100,
+        hasData: true,
+        tooltipNote: `2022 partial year: from interpolated weekly state at ${UKRAINE_WAR_SERIES_START_ISO} (invasion-era series start) to last weekly anchor in 2022 (${row2022.anchor.date}). Later years use full calendar year-end anchors.`,
+      });
+    }
+  }
+
   for (let i = 1; i < rows.length; i++) {
     const start = rows[i - 1].anchor;
     const end = rows[i].anchor;
@@ -1436,6 +1503,10 @@ function getYoYNetMovementRowsFromWeekly(
       tooltipNote:
         'Year-over-year change between last weekly snapshots of consecutive calendar years (used when dedicated yearly JSON is unavailable).',
     });
+  }
+
+  if (pairs.length === 0) {
+    return [];
   }
   return pairs.slice(-maxBars);
 }
@@ -1456,7 +1527,10 @@ function getCalendarYearNetMovementFromDaily(
   const out: NetMovementBarRow[] = [];
   for (const y of sliceYears) {
     const prefix = `${y}-`;
-    const inYear = data.filter((d) => d.date.startsWith(prefix));
+    const inYear =
+      y === 2022
+        ? data.filter((d) => d.date.startsWith(prefix) && d.date >= UKRAINE_WAR_SERIES_START_ISO)
+        : data.filter((d) => d.date.startsWith(prefix));
     if (inYear.length >= 2) {
       const a = inYear[0];
       const b = inYear[inYear.length - 1];
@@ -1469,7 +1543,9 @@ function getCalendarYearNetMovementFromDaily(
         pct: (netKm2 / totalUkraine) * 100,
         hasData: true,
         tooltipNote:
-          'First vs last daily snapshot in this calendar year (fallback when no yearly history JSON is loaded).',
+          y === 2022
+            ? `First vs last daily snapshot from ${UKRAINE_WAR_SERIES_START_ISO} through end of 2022 (war-series start, not Jan 1).`
+            : 'First vs last daily snapshot in this calendar year (fallback when no yearly history JSON is loaded).',
       });
     } else {
       out.push({

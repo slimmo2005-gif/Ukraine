@@ -947,7 +947,7 @@ function App() {
                             (yearlySnapshotData.length >= 2
                               ? ' Year: yearly history anchors (YoY); tail may use interpolation to your viewed date.'
                               : weeklySnapshotData.length >= 2
-                                ? ' Year: YoY between last weekly snapshot of each calendar year (up to six year transitions); daily calendar-year bands only if weekly history is unavailable.'
+                                ? ' Year: YoY between last weekly snapshot of each calendar year (up to six year transitions). 2022 uses 22 Feb as the series start (invasion-era) through the last 2022 anchor. Daily fallback uses the same 2022 start when weekly history is unavailable.'
                                 : ' Year: last six calendar years from loaded dailies (first vs last snapshot per year).')}
                         </p>
                         <div
