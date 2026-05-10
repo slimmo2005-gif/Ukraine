@@ -10,6 +10,8 @@ import {
   Cell,
 } from 'recharts';
 import { Header } from '@/components/Header';
+import { AdminAnalytics } from '@/components/AdminAnalytics';
+import { logPageSessionVisit } from '@/lib/analytics';
 import { ChartSection } from '@/components/ChartSection';
 import { TerritoryMap } from '@/components/TerritoryMap';
 import { DataSourceSelector } from '@/components/DataSourceSelector';
@@ -294,6 +296,28 @@ function App() {
   const [oblastRussianChangePeriod, setOblastRussianChangePeriod] =
     useState<OblastRussianChangePeriod>('day');
   const [netMovementPeriod, setNetMovementPeriod] = useState<OblastRussianChangePeriod>('month');
+  const [adminOpen, setAdminOpen] = useState(() =>
+    typeof window !== 'undefined' && window.location.hash.toLowerCase() === '#admin',
+  );
+
+  useEffect(() => {
+    const syncAdminHash = () => setAdminOpen(window.location.hash.toLowerCase() === '#admin');
+    window.addEventListener('hashchange', syncAdminHash);
+    syncAdminHash();
+    return () => window.removeEventListener('hashchange', syncAdminHash);
+  }, []);
+
+  useEffect(() => {
+    logPageSessionVisit();
+  }, []);
+
+  const closeAdminPanel = () => {
+    setAdminOpen(false);
+    if (typeof window !== 'undefined' && window.location.hash.toLowerCase() === '#admin') {
+      const path = window.location.pathname + window.location.search;
+      window.history.replaceState(null, '', path);
+    }
+  };
 
   // Fetch data on mount
   useEffect(() => {
@@ -830,7 +854,7 @@ function App() {
                         <p className="text-xs text-gray-500 mb-2 leading-snug">
                           Positive = net toward Russian control (Ukraine → Russia). Hover for % of Ukraine.
                           {netMovementPeriod === 'day' &&
-                            ' Day: last up to 14 snapshots, each vs previous.'}
+                            ' Day: last up to 14 snapshots. Each bar is Δ Russian − Δ Ukrainian controlled vs the previous snapshot (not Russian-only change; Ukrainian here is total − Russian − disputed).'}
                           {netMovementPeriod === 'week' &&
                             (weeklySnapshotData.length >= 2
                               ? ' Week: last up to 6 moves from weekly history (WoW between anchors); tail bar can end at your viewed date via linear interpolation between anchors (or extrapolation past the latest anchor).'
@@ -1243,6 +1267,8 @@ function App() {
           </>
         )}
       </main>
+
+      {adminOpen && <AdminAnalytics onClose={closeAdminPanel} />}
 
       {showHistoryHelp && (
         <div
