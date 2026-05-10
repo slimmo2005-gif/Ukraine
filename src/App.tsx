@@ -10,6 +10,7 @@ import {
   Cell,
 } from 'recharts';
 import { Header } from '@/components/Header';
+import { DeepStateAttribution } from '@/components/DeepStateAttribution';
 import { ChartSection } from '@/components/ChartSection';
 import { TerritoryMap } from '@/components/TerritoryMap';
 import { DataSourceSelector } from '@/components/DataSourceSelector';
@@ -638,8 +639,10 @@ function App() {
   return (
     <div className="min-h-screen bg-osint-dark text-white">
       <Header />
-      
+
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <DeepStateAttribution />
+
         {/* Loading State */}
         {isLoading && (
           <div className="flex items-center justify-center py-12">
@@ -1336,6 +1339,26 @@ function App() {
             <div>
               <p className="text-sm text-gray-400">
                 Data Source: {dataSource === 'deepstate' ? 'DeepStateMap' : dataSource === 'isw' ? 'Institute for the Study of War' : 'Combined (Averaged)'}
+              </p>
+              <p className="text-xs text-gray-500 mt-2 max-w-xl leading-relaxed">
+                DeepState / DeepStateMap:{' '}
+                <a
+                  href="https://deepstatemap.live/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-ukraine-blue hover:underline"
+                >
+                  map
+                </a>
+                {' · '}
+                <a
+                  href="https://deepstateua.shop/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-ukraine-blue hover:underline"
+                >
+                  shop
+                </a>
               </p>
               <p className="text-xs text-gray-500 mt-1">
                 Snapshot date: {selectedDate ? formatShortDate(selectedDate) : 'N/A'}
