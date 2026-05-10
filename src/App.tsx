@@ -10,8 +10,6 @@ import {
   Cell,
 } from 'recharts';
 import { Header } from '@/components/Header';
-import { AdminAnalytics } from '@/components/AdminAnalytics';
-import { logPageSessionVisit } from '@/lib/analytics';
 import { ChartSection } from '@/components/ChartSection';
 import { TerritoryMap } from '@/components/TerritoryMap';
 import { DataSourceSelector } from '@/components/DataSourceSelector';
@@ -309,28 +307,6 @@ function App() {
     useState<OblastRussianChangePeriod>('day');
   const [netMovementPeriod, setNetMovementPeriod] = useState<OblastRussianChangePeriod>('month');
   const [netMovementDeltaMode, setNetMovementDeltaMode] = useState<NetMovementDeltaMode>('russian');
-  const [adminOpen, setAdminOpen] = useState(() =>
-    typeof window !== 'undefined' && window.location.hash.toLowerCase() === '#admin',
-  );
-
-  useEffect(() => {
-    const syncAdminHash = () => setAdminOpen(window.location.hash.toLowerCase() === '#admin');
-    window.addEventListener('hashchange', syncAdminHash);
-    syncAdminHash();
-    return () => window.removeEventListener('hashchange', syncAdminHash);
-  }, []);
-
-  useEffect(() => {
-    logPageSessionVisit();
-  }, []);
-
-  const closeAdminPanel = () => {
-    setAdminOpen(false);
-    if (typeof window !== 'undefined' && window.location.hash.toLowerCase() === '#admin') {
-      const path = window.location.pathname + window.location.search;
-      window.history.replaceState(null, '', path);
-    }
-  };
 
   // Fetch data on mount
   useEffect(() => {
@@ -1327,8 +1303,6 @@ function App() {
           </>
         )}
       </main>
-
-      {adminOpen && <AdminAnalytics onClose={closeAdminPanel} />}
 
       {showHistoryHelp && (
         <div
