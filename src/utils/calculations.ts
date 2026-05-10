@@ -748,6 +748,45 @@ export interface CompletedMonthNetRow {
   snapshotCount: number;
   startDate: string | null;
   endDate: string | null;
+  /** When daily has fewer than two points in the month, net may come from weekly anchors (interp at month bounds). */
+  source?: 'daily' | 'weekly_bridge';
+}
+
+function firstDayKeyOfMonth(year: number, month1: number): string {
+  return `${year}-${String(month1).padStart(2, '0')}-01`;
+}
+
+function lastDayKeyOfMonth(year: number, month1: number): string {
+  const day = new Date(year, month1, 0).getDate();
+  return `${year}-${String(month1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/** Net movement for a calendar month using interpolated weekly state at month start/end. */
+function tryMonthNetFromWeekly(
+  weeklySortedAsc: DailyTerritoryData[],
+  year: number,
+  month1: number,
+  oblast?: OblastKey,
+): { netKm2: number; netPctOfTotalUkraine: number; startDate: string; endDate: string } | null {
+  if (weeklySortedAsc.length < 2) {
+    return null;
+  }
+  const sorted = [...weeklySortedAsc].sort((a, b) => a.date.localeCompare(b.date));
+  const startKey = firstDayKeyOfMonth(year, month1);
+  const endKey = lastDayKeyOfMonth(year, month1);
+  const startState = interpolateTerritoryAtDate(sorted, startKey);
+  const endState = interpolateTerritoryAtDate(sorted, endKey);
+  if (!startState || !endState) {
+    return null;
+  }
+  const netKm2 = oblast ? netMovementOblast(startState, endState, oblast) : netMovementNational(startState, endState);
+  const totalUkraine = Math.max(endState.total_area_km2, 1);
+  return {
+    netKm2,
+    netPctOfTotalUkraine: (netKm2 / totalUkraine) * 100,
+    startDate: startKey,
+    endDate: endKey,
+  };
 }
 
 function netMovementNational(startDay: DailyTerritoryData, endDay: DailyTerritoryData): number {
@@ -776,10 +815,13 @@ function netMovementOblast(
  * Six most recent completed calendar months (e.g. with data ending May 2026 → Nov 2025 … Apr 2026),
  * each with net movement (Δ Russian − Δ Ukrainian controlled) from first to last snapshot in that month.
  * Percent uses total Ukraine area on the month's last snapshot.
+ * When a month has fewer than two daily snapshots but `weeklySnapshots` has ≥2 anchors, net is estimated
+ * from interpolated weekly state at the first and last calendar day of that month.
  */
 export function getLastSixCompletedMonthsNetMovement(
   data: DailyTerritoryData[],
   oblast?: OblastKey,
+  weeklySnapshots?: DailyTerritoryData[],
 ): CompletedMonthNetRow[] {
   if (data.length < 1) {
     return [];
@@ -799,6 +841,8 @@ export function getLastSixCompletedMonthsNetMovement(
     let netPctOfTotalUkraine = 0;
     let startDate: string | null = null;
     let endDate: string | null = null;
+    let snapshotCount = inMonth.length;
+    let source: CompletedMonthNetRow['source'] = 'daily';
 
     if (inMonth.length >= 2) {
       const start = inMonth[0];
@@ -808,6 +852,16 @@ export function getLastSixCompletedMonthsNetMovement(
       netKm2 = oblast ? netMovementOblast(start, end, oblast) : netMovementNational(start, end);
       const totalUkraine = Math.max(end.total_area_km2, 1);
       netPctOfTotalUkraine = (netKm2 / totalUkraine) * 100;
+    } else if (weeklySnapshots && weeklySnapshots.length >= 2) {
+      const bridged = tryMonthNetFromWeekly(weeklySnapshots, year, month, oblast);
+      if (bridged) {
+        netKm2 = bridged.netKm2;
+        netPctOfTotalUkraine = bridged.netPctOfTotalUkraine;
+        startDate = bridged.startDate;
+        endDate = bridged.endDate;
+        snapshotCount = 2;
+        source = 'weekly_bridge';
+      }
     } else if (inMonth.length === 1) {
       startDate = inMonth[0].date;
       endDate = inMonth[0].date;
@@ -820,9 +874,10 @@ export function getLastSixCompletedMonthsNetMovement(
       label: formatCompletedMonthLabel(year, month),
       netKm2,
       netPctOfTotalUkraine,
-      snapshotCount: inMonth.length,
+      snapshotCount,
       startDate,
       endDate,
+      source,
     });
   }
 
@@ -1190,7 +1245,7 @@ export function getNetMovementChartRows(
     return out;
   }
 
-  const months = getLastSixCompletedMonthsNetMovement(data, oblast);
+  const months = getLastSixCompletedMonthsNetMovement(data, oblast, options?.weeklySnapshots);
   return months.map((row) => {
     const [yy, mm] = row.monthKey.split('-');
     const periodLabel = `${SHORT_MONTH[parseInt(mm, 10) - 1]}-${yy.slice(-2)}`;
@@ -1201,6 +1256,10 @@ export function getNetMovementChartRows(
       fullNet: canPlot ? row.netKm2 : null,
       pct: canPlot ? row.netPctOfTotalUkraine : null,
       hasData: canPlot,
+      tooltipNote:
+        row.source === 'weekly_bridge'
+          ? 'Estimated from weekly history: interpolated/extrapolated territory at month start vs month end (fewer than 2 daily snapshots in this month).'
+          : undefined,
     };
   });
 }

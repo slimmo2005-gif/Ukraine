@@ -35,6 +35,9 @@ import type { DataSource, ViewLevel, OblastKey, DailyTerritoryData } from '@/typ
  * Fetch territory data from GitHub repository
  * Repo: https://github.com/slimmo2005-gif/ukraine-territory-data
  */
+/** How far back to load daily JSON for charts and time travel (six completed months need roughly 7+ months of files). */
+const DAILY_HISTORY_LOOKBACK_DAYS = 400;
+
 const DATA_REPO_RAW_BASE_URL = 'https://raw.githubusercontent.com/slimmo2005-gif/ukraine-territory-data';
 const DATA_REPO_API_BASE_URL = 'https://api.github.com/repos/slimmo2005-gif/ukraine-territory-data/contents';
 const DATA_DIRECTORIES = ['data', 'data/history'];
@@ -299,9 +302,8 @@ function App() {
       setError(null);
       
       try {
-        // Fetch last 90 days of data
         const endDate = new Date();
-        const startDate = getDateDaysAgo(90);
+        const startDate = getDateDaysAgo(DAILY_HISTORY_LOOKBACK_DAYS);
         
         const [data, weekly] = await Promise.all([
           fetchDateRange(startDate, endDate),
@@ -834,7 +836,7 @@ function App() {
                               ? ' Week: last up to 6 moves from weekly history (WoW between anchors); tail bar can end at your viewed date via linear interpolation between anchors (or extrapolation past the latest anchor).'
                               : ' Week: last 6 ISO weeks with data, first vs last snapshot in each week.')}
                           {netMovementPeriod === 'month' &&
-                            ' Month: six completed calendar months, first vs last snapshot in each month.'}
+                            ' Month: six completed calendar months (first vs last daily snapshot in each month). Months with fewer than two dailies use weekly history interpolated to month start/end when available.'}
                         </p>
                         <div
                           className={`w-full ${netMovementPeriod === 'day' ? 'h-[200px]' : 'h-[172px]'}`}
