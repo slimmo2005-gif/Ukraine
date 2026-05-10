@@ -43,7 +43,8 @@ const DATA_REPO_RAW_BASE_URL = 'https://raw.githubusercontent.com/slimmo2005-gif
 const DATA_REPO_API_BASE_URL = 'https://api.github.com/repos/slimmo2005-gif/ukraine-territory-data/contents';
 const DATA_DIRECTORIES = ['data', 'data/history'];
 const DATA_WEEKLY_DIRECTORY = 'data/history/weekly';
-const DATA_YEARLY_DIRECTORY = 'data/history/yearly';
+/** Tried in order until one lists JSON files (supports yearly vs annual folder names). */
+const DATA_YEARLY_DIRECTORIES = ['data/history/yearly', 'data/history/annual'] as const;
 const DATA_REPO_BRANCHES = ['master', 'main'];
 
 type DirectoryJsonListing = { dateKeys: string[]; branch: string };
@@ -159,22 +160,27 @@ async function fetchWeeklySnapshotSeries(): Promise<DailyTerritoryData[]> {
   return out;
 }
 
-/** Yearly anchors under data/history/yearly/, ascending by date key (when present). */
+/** Yearly anchors under data/history/yearly or annual/, ascending by date key (when present). */
 async function fetchYearlySnapshotSeries(): Promise<DailyTerritoryData[]> {
-  const listing = await discoverJsonDateKeysInDirectory(DATA_YEARLY_DIRECTORY);
-  if (!listing) {
-    return [];
-  }
-  const { dateKeys, branch } = listing;
-  const out: DailyTerritoryData[] = [];
-  for (const dateKey of dateKeys) {
-    const url = `${DATA_REPO_RAW_BASE_URL}/${branch}/${DATA_YEARLY_DIRECTORY}/${dateKey}.json`;
-    const row = await fetchDataFromUrl(url, dateKey);
-    if (row) {
-      out.push(row);
+  for (const directory of DATA_YEARLY_DIRECTORIES) {
+    const listing = await discoverJsonDateKeysInDirectory(directory);
+    if (!listing) {
+      continue;
+    }
+    const { dateKeys, branch } = listing;
+    const out: DailyTerritoryData[] = [];
+    for (const dateKey of dateKeys) {
+      const url = `${DATA_REPO_RAW_BASE_URL}/${branch}/${directory}/${dateKey}.json`;
+      const row = await fetchDataFromUrl(url, dateKey);
+      if (row) {
+        out.push(row);
+      }
+    }
+    if (out.length > 0) {
+      return out;
     }
   }
-  return out;
+  return [];
 }
 
 async function fetchDateRange(startDate: Date, endDate: Date): Promise<DailyTerritoryData[]> {
@@ -551,11 +557,22 @@ function App() {
         oblast.oblast,
         oblastRussianChangePeriod,
         endIdx,
-        { yearlySnapshots: yearlySnapshotData, selectedDate },
+        {
+          yearlySnapshots: yearlySnapshotData,
+          weeklySnapshots: weeklySnapshotData,
+          selectedDate,
+        },
       );
     }
     return { totalRuKm2, totalDeltaRuKm2 };
-  }, [activeOblasts, dataUpToSelected, oblastRussianChangePeriod, yearlySnapshotData, selectedDate]);
+  }, [
+    activeOblasts,
+    dataUpToSelected,
+    oblastRussianChangePeriod,
+    yearlySnapshotData,
+    weeklySnapshotData,
+    selectedDate,
+  ]);
 
   const formatKm2 = (value: number) => `${Math.round(value).toLocaleString()} km²`;
   const formatPercent = (value: number) => `${Math.round(value).toLocaleString()}%`;
@@ -820,6 +837,11 @@ function App() {
                 {netMovementPeriod === 'year' && yearlySnapshotData.length > 0
                   ? ': YoY uses yearly history files when available'
                   : ''}
+                {netMovementPeriod === 'year' &&
+                yearlySnapshotData.length === 0 &&
+                weeklySnapshotData.length >= 2
+                  ? ': YoY uses weekly year-end anchors when yearly files are absent'
+                  : ''}
                 ).
               </p>
               {(() => {
@@ -921,7 +943,9 @@ function App() {
                           {netMovementPeriod === 'year' &&
                             (yearlySnapshotData.length >= 2
                               ? ' Year: yearly history anchors (YoY); tail may use interpolation to your viewed date.'
-                              : ' Year: last six calendar years from loaded dailies (first vs last snapshot per year).')}
+                              : weeklySnapshotData.length >= 2
+                                ? ' Year: YoY between last weekly snapshot of each calendar year (up to six year transitions); daily calendar-year bands only if weekly history is unavailable.'
+                                : ' Year: last six calendar years from loaded dailies (first vs last snapshot per year).')}
                         </p>
                         <div
                           className={`w-full ${netMovementPeriod === 'day' ? 'h-[200px]' : 'h-[172px]'}`}
@@ -1062,8 +1086,10 @@ function App() {
                       {oblastRussianChangePeriod === 'month' && 'Earliest snapshot on or after 30 days before viewed date.'}
                       {oblastRussianChangePeriod === 'year' &&
                         (yearlySnapshotData.length > 0
-                          ? 'YoY from yearly history when available; else ~365d window.'
-                          : 'Earliest snapshot on or after 365 days before viewed date.')}
+                          ? 'YoY from yearly history when available; else weekly year-end YoY or ~365d window.'
+                          : weeklySnapshotData.length >= 2
+                            ? 'YoY vs prior year using last weekly snapshot per calendar year; else ~365d window.'
+                            : 'Earliest snapshot on or after 365 days before viewed date.')}
                     </p>
                   </div>
                 </div>
@@ -1127,7 +1153,11 @@ function App() {
                                 oblast.oblast,
                                 oblastRussianChangePeriod,
                                 endIdx,
-                                { yearlySnapshots: yearlySnapshotData, selectedDate },
+                                {
+                                  yearlySnapshots: yearlySnapshotData,
+                                  weeklySnapshots: weeklySnapshotData,
+                                  selectedDate,
+                                },
                               )
                             : 0;
                         const dRuClass =
