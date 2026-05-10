@@ -58,8 +58,8 @@ export type TerritorySnapshotSource = 'wayback' | 'daily_nearest' | 'weekly_near
 export interface DailyTerritoryData {
   date: string; // ISO 8601 format: YYYY-MM-DD
   source: DataSource;
-  /** Present on weekly history files from the extractor. */
-  granularity?: 'daily' | 'weekly';
+  /** Present on weekly/yearly history files from the extractor. */
+  granularity?: 'daily' | 'weekly' | 'yearly';
   snapshot_source?: TerritorySnapshotSource;
   wayback_timestamp?: string;
   wayback_capture_date?: string;

@@ -517,21 +517,33 @@ function getOblastDeltaWindowed(
   };
 }
 
+function snapshotsOnOrBefore(
+  snapshots: DailyTerritoryData[],
+  selectedDate: string,
+): DailyTerritoryData[] {
+  return snapshots.filter((w) => w.date <= selectedDate).sort((a, b) => a.date.localeCompare(b.date));
+}
+
 function weeklyAnchorsOnOrBefore(
   weeklySnapshots: DailyTerritoryData[],
   selectedDate: string,
 ): DailyTerritoryData[] {
-  return weeklySnapshots
-    .filter((w) => w.date <= selectedDate)
-    .sort((a, b) => a.date.localeCompare(b.date));
+  return snapshotsOnOrBefore(weeklySnapshots, selectedDate);
 }
 
-export type OblastRussianChangePeriod = 'day' | 'week' | 'month';
+function yearlyAnchorsOnOrBefore(
+  yearlySnapshots: DailyTerritoryData[],
+  selectedDate: string,
+): DailyTerritoryData[] {
+  return snapshotsOnOrBefore(yearlySnapshots, selectedDate);
+}
+
+export type OblastRussianChangePeriod = 'day' | 'week' | 'month' | 'year';
 
 /** Net-movement chart: bar height is Russian Δ or Ukrainian Δ (not composite net). */
 export type NetMovementDeltaMode = 'russian' | 'ukrainian';
 
-/** Deltas under Territory Breakdown; aligns with Net movement Day / Week / Month. */
+/** Deltas under Territory Breakdown; aligns with Net movement Day / Week / Month / Year. */
 export interface SummaryDeltaLine {
   russianChange: number;
   ukrainianChange: number;
@@ -542,6 +554,7 @@ export interface SummaryDeltaLine {
 export function getSummaryDeltasNational(
   dataUpToSelected: DailyTerritoryData[],
   weeklySnapshots: DailyTerritoryData[],
+  yearlySnapshots: DailyTerritoryData[],
   period: OblastRussianChangePeriod,
   selectedDate: string,
   endIndex: number,
@@ -599,16 +612,55 @@ export function getSummaryDeltasNational(
     };
   }
 
-  const m = getNationalDeltaWindowed(dataUpToSelected, endIndex, 30);
+  if (period === 'month') {
+    const m = getNationalDeltaWindowed(dataUpToSelected, endIndex, 30);
+    return {
+      ...m,
+      compareSuffix: '~30 days (first snapshot in window)',
+    };
+  }
+
+  if (period === 'year' && yearlySnapshots.length > 0) {
+    const anchors = yearlyAnchorsOnOrBefore(yearlySnapshots, selectedDate);
+    if (anchors.length === 0) {
+      const w = getNationalDeltaWindowed(dataUpToSelected, endIndex, 365);
+      return {
+        ...w,
+        compareSuffix: '~365 days (no yearly anchor on or before this date)',
+      };
+    }
+    const latest = anchors[anchors.length - 1];
+    const prev = anchors.length >= 2 ? anchors[anchors.length - 2] : null;
+    return {
+      russianChange: latest.russian_change_km2 ?? 0,
+      ukrainianChange: latest.ukrainian_change_km2 ?? 0,
+      disputedChange: latest.disputed_change_km2 ?? 0,
+      compareSuffix: prev
+        ? `YoY vs ${prev.date} (yearly anchor ${latest.date})`
+        : `first yearly anchor (${latest.date})`,
+    };
+  }
+
+  if (period === 'year') {
+    const w = getNationalDeltaWindowed(dataUpToSelected, endIndex, 365);
+    return {
+      ...w,
+      compareSuffix: '~365 days (first snapshot in window)',
+    };
+  }
+
   return {
-    ...m,
-    compareSuffix: '~30 days (first snapshot in window)',
+    russianChange: 0,
+    ukrainianChange: 0,
+    disputedChange: 0,
+    compareSuffix: '',
   };
 }
 
 export function getSummaryDeltasOblast(
   dataUpToSelected: DailyTerritoryData[],
   weeklySnapshots: DailyTerritoryData[],
+  yearlySnapshots: DailyTerritoryData[],
   period: OblastRussianChangePeriod,
   selectedDate: string,
   endIndex: number,
@@ -669,23 +721,64 @@ export function getSummaryDeltasOblast(
     };
   }
 
-  const m = getOblastDeltaWindowed(dataUpToSelected, endIndex, oblast, 30);
+  if (period === 'month') {
+    const m = getOblastDeltaWindowed(dataUpToSelected, endIndex, oblast, 30);
+    return {
+      ...m,
+      compareSuffix: '~30 days (first snapshot in window)',
+    };
+  }
+
+  if (period === 'year' && yearlySnapshots.length > 0) {
+    const anchors = yearlyAnchorsOnOrBefore(yearlySnapshots, selectedDate);
+    if (anchors.length === 0) {
+      const w = getOblastDeltaWindowed(dataUpToSelected, endIndex, oblast, 365);
+      return {
+        ...w,
+        compareSuffix: '~365 days (no yearly anchor on or before this date)',
+      };
+    }
+    const latest = anchors[anchors.length - 1];
+    const prev = anchors.length >= 2 ? anchors[anchors.length - 2] : null;
+    const row = latest.oblasts.find((o) => o.oblast === oblast);
+    return {
+      russianChange: row?.russian_change_km2 ?? 0,
+      ukrainianChange: row?.ukrainian_change_km2 ?? 0,
+      disputedChange: row?.disputed_change_km2 ?? 0,
+      compareSuffix: prev
+        ? `YoY vs ${prev.date} (yearly ${latest.date})`
+        : `first yearly anchor (${latest.date})`,
+    };
+  }
+
+  if (period === 'year') {
+    const w = getOblastDeltaWindowed(dataUpToSelected, endIndex, oblast, 365);
+    return {
+      ...w,
+      compareSuffix: '~365 days (first snapshot in window)',
+    };
+  }
+
   return {
-    ...m,
-    compareSuffix: '~30 days (first snapshot in window)',
+    russianChange: 0,
+    ukrainianChange: 0,
+    disputedChange: 0,
+    compareSuffix: '',
   };
 }
 
 /**
  * Change in Russian-controlled km² for one oblast at `endIndex` in `data` (sorted by date).
  * - day: vs previous snapshot (derived delta; first day uses JSON fallback).
- * - week / month: vs earliest snapshot on or after (end date − 7 / − 30 calendar days), within loaded data.
+ * - week / month / year: vs earliest snapshot on or after (end − 7 / − 30 / − 365 calendar days), within loaded data.
+ * - year (optional): when `yearlySnapshots` + `selectedDate` are set and yearly files exist, uses YoY from the latest yearly anchor (same as summary).
  */
 export function getOblastRussianChangeKm2(
   data: DailyTerritoryData[],
   oblast: OblastKey,
   period: OblastRussianChangePeriod,
   endIndex: number,
+  options?: { yearlySnapshots?: DailyTerritoryData[]; selectedDate?: string },
 ): number {
   if (endIndex < 0 || endIndex >= data.length) {
     return 0;
@@ -694,7 +787,21 @@ export function getOblastRussianChangeKm2(
     return getDerivedOblastChanges(data, endIndex, oblast).russianChange;
   }
 
-  const daysBack = period === 'week' ? 7 : 30;
+  if (
+    period === 'year' &&
+    options?.yearlySnapshots &&
+    options.yearlySnapshots.length > 0 &&
+    options.selectedDate
+  ) {
+    const anchors = yearlyAnchorsOnOrBefore(options.yearlySnapshots, options.selectedDate);
+    if (anchors.length > 0) {
+      const latest = anchors[anchors.length - 1];
+      const row = latest.oblasts.find((o) => o.oblast === oblast);
+      return row?.russian_change_km2 ?? 0;
+    }
+  }
+
+  const daysBack = period === 'week' ? 7 : period === 'month' ? 30 : period === 'year' ? 365 : 30;
   const endDay = data[endIndex];
   const endDate = parseLocalDateKey(endDay.date);
   const windowStart = new Date(endDate);
@@ -1156,12 +1263,14 @@ export function getWeeklyHistoryNetMovementRows(
   oblast: OblastKey | undefined,
   maxBars: number,
   deltaMode: NetMovementDeltaMode,
+  anchorKind: 'weekly' | 'yearly' = 'weekly',
 ): NetMovementBarRow[] {
   const segments = buildWeeklyHistoryNetSegments(weeklySortedAsc, selectedDate);
   if (segments.length === 0) {
     return [];
   }
 
+  const anchorWord = anchorKind === 'yearly' ? 'yearly' : 'weekly';
   const lastBars = segments.slice(-maxBars);
   const out: NetMovementBarRow[] = [];
 
@@ -1176,7 +1285,7 @@ export function getWeeklyHistoryNetMovementRows(
       pct,
       hasData: true,
       tooltipNote: seg.interpolatedEnd
-        ? 'Linear blend or extrapolation along time between the two nearest weekly JSON anchors (state at the viewed date is estimated, not a file row).'
+        ? `Linear blend or extrapolation along time between the two nearest ${anchorWord} JSON anchors (state at the viewed date is estimated, not a file row).`
         : undefined,
     });
   }
@@ -1197,10 +1306,54 @@ function formatWeekAxisLabel(weekKey: string): string {
   return `W${Number(m[2])} '${m[1].slice(-2)}`;
 }
 
+function getCalendarYearNetMovementFromDaily(
+  data: DailyTerritoryData[],
+  oblast: OblastKey | undefined,
+  mode: NetMovementDeltaMode,
+  maxYears: number,
+): NetMovementBarRow[] {
+  const yearSet = new Set<number>();
+  for (const d of data) {
+    const y = parseInt(d.date.slice(0, 4), 10);
+    if (!Number.isNaN(y)) yearSet.add(y);
+  }
+  const years = [...yearSet].sort((a, b) => a - b);
+  const sliceYears = years.slice(-maxYears);
+  const out: NetMovementBarRow[] = [];
+  for (const y of sliceYears) {
+    const prefix = `${y}-`;
+    const inYear = data.filter((d) => d.date.startsWith(prefix));
+    if (inYear.length >= 2) {
+      const a = inYear[0];
+      const b = inYear[inYear.length - 1];
+      const netKm2 = pairDelta(a, b, mode, oblast);
+      const totalUkraine = Math.max(b.total_area_km2, 1);
+      out.push({
+        periodLabel: String(y),
+        netKm2,
+        fullNet: netKm2,
+        pct: (netKm2 / totalUkraine) * 100,
+        hasData: true,
+        tooltipNote:
+          'First vs last daily snapshot in this calendar year (fallback when no yearly history JSON is loaded).',
+      });
+    } else {
+      out.push({
+        periodLabel: String(y),
+        netKm2: 0,
+        fullNet: null,
+        pct: null,
+        hasData: false,
+      });
+    }
+  }
+  return out;
+}
+
 /**
  * Bars for territory controlled-area change: either Δ Russian or Δ Ukrainian per step (national or oblast).
  * Day: last 14 snapshots vs previous. Week: weekly JSON (WoW) when provided, else ISO weeks from dailies.
- * Month: six completed calendar months.
+ * Month: six completed calendar months. Year: yearly JSON (YoY) when provided, else last six calendar years from dailies.
  */
 export function getNetMovementChartRows(
   data: DailyTerritoryData[],
@@ -1208,6 +1361,7 @@ export function getNetMovementChartRows(
   oblast?: OblastKey,
   options?: {
     weeklySnapshots?: DailyTerritoryData[];
+    yearlySnapshots?: DailyTerritoryData[];
     selectedDate?: string;
     deltaMode?: NetMovementDeltaMode;
   },
@@ -1284,26 +1438,42 @@ export function getNetMovementChartRows(
     return out;
   }
 
-  const months = getLastSixCompletedMonthsNetMovement(data, oblast, options?.weeklySnapshots);
-  return months.map((row) => {
-    const [yy, mm] = row.monthKey.split('-');
-    const periodLabel = `${SHORT_MONTH[parseInt(mm, 10) - 1]}-${yy.slice(-2)}`;
-    const canPlot = row.snapshotCount >= 2 && row.areaDenominatorKm2 > 0;
-    const raw =
-      mode === 'ukrainian' ? row.ukrainianDeltaKm2 : row.russianDeltaKm2;
-    const pct = canPlot ? (raw / row.areaDenominatorKm2) * 100 : null;
-    return {
-      periodLabel,
-      netKm2: canPlot ? raw : 0,
-      fullNet: canPlot ? raw : null,
-      pct,
-      hasData: canPlot,
-      tooltipNote:
-        row.source === 'weekly_bridge'
-          ? 'Estimated from weekly history: interpolated/extrapolated territory at month start vs month end (fewer than 2 daily snapshots in this month).'
-          : undefined,
-    };
-  });
+  if (period === 'month') {
+    const months = getLastSixCompletedMonthsNetMovement(data, oblast, options?.weeklySnapshots);
+    return months.map((row) => {
+      const [yy, mm] = row.monthKey.split('-');
+      const periodLabel = `${SHORT_MONTH[parseInt(mm, 10) - 1]}-${yy.slice(-2)}`;
+      const canPlot = row.snapshotCount >= 2 && row.areaDenominatorKm2 > 0;
+      const raw =
+        mode === 'ukrainian' ? row.ukrainianDeltaKm2 : row.russianDeltaKm2;
+      const pct = canPlot ? (raw / row.areaDenominatorKm2) * 100 : null;
+      return {
+        periodLabel,
+        netKm2: canPlot ? raw : 0,
+        fullNet: canPlot ? raw : null,
+        pct,
+        hasData: canPlot,
+        tooltipNote:
+          row.source === 'weekly_bridge'
+            ? 'Estimated from weekly history: interpolated/extrapolated territory at month start vs month end (fewer than 2 daily snapshots in this month).'
+            : undefined,
+      };
+    });
+  }
+
+  if (period === 'year') {
+    const yearly = options?.yearlySnapshots;
+    if (yearly && yearly.length >= 2) {
+      const sel = options?.selectedDate ?? data[data.length - 1]?.date ?? '';
+      const fromRepo = getWeeklyHistoryNetMovementRows(yearly, sel, oblast, 6, mode, 'yearly');
+      if (fromRepo.length > 0) {
+        return fromRepo;
+      }
+    }
+    return getCalendarYearNetMovementFromDaily(data, oblast, mode, 6);
+  }
+
+  return [];
 }
 
 /**

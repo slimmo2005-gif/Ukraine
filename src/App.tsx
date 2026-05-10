@@ -43,6 +43,7 @@ const DATA_REPO_RAW_BASE_URL = 'https://raw.githubusercontent.com/slimmo2005-gif
 const DATA_REPO_API_BASE_URL = 'https://api.github.com/repos/slimmo2005-gif/ukraine-territory-data/contents';
 const DATA_DIRECTORIES = ['data', 'data/history'];
 const DATA_WEEKLY_DIRECTORY = 'data/history/weekly';
+const DATA_YEARLY_DIRECTORY = 'data/history/yearly';
 const DATA_REPO_BRANCHES = ['master', 'main'];
 
 type DirectoryJsonListing = { dateKeys: string[]; branch: string };
@@ -150,6 +151,24 @@ async function fetchWeeklySnapshotSeries(): Promise<DailyTerritoryData[]> {
   const out: DailyTerritoryData[] = [];
   for (const dateKey of dateKeys) {
     const url = `${DATA_REPO_RAW_BASE_URL}/${branch}/${DATA_WEEKLY_DIRECTORY}/${dateKey}.json`;
+    const row = await fetchDataFromUrl(url, dateKey);
+    if (row) {
+      out.push(row);
+    }
+  }
+  return out;
+}
+
+/** Yearly anchors under data/history/yearly/, ascending by date key (when present). */
+async function fetchYearlySnapshotSeries(): Promise<DailyTerritoryData[]> {
+  const listing = await discoverJsonDateKeysInDirectory(DATA_YEARLY_DIRECTORY);
+  if (!listing) {
+    return [];
+  }
+  const { dateKeys, branch } = listing;
+  const out: DailyTerritoryData[] = [];
+  for (const dateKey of dateKeys) {
+    const url = `${DATA_REPO_RAW_BASE_URL}/${branch}/${DATA_YEARLY_DIRECTORY}/${dateKey}.json`;
     const row = await fetchDataFromUrl(url, dateKey);
     if (row) {
       out.push(row);
@@ -299,6 +318,7 @@ function App() {
   const [selectedOblast, setSelectedOblast] = useState<OblastKey>('donetsk');
   const [historicalData, setHistoricalData] = useState<DailyTerritoryData[]>([]);
   const [weeklySnapshotData, setWeeklySnapshotData] = useState<DailyTerritoryData[]>([]);
+  const [yearlySnapshotData, setYearlySnapshotData] = useState<DailyTerritoryData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>('');
@@ -318,13 +338,15 @@ function App() {
         const endDate = new Date();
         const startDate = getDateDaysAgo(DAILY_HISTORY_LOOKBACK_DAYS);
         
-        const [data, weekly] = await Promise.all([
+        const [data, weekly, yearly] = await Promise.all([
           fetchDateRange(startDate, endDate),
           fetchWeeklySnapshotSeries(),
+          fetchYearlySnapshotSeries(),
         ]);
 
         setHistoricalData(data);
         setWeeklySnapshotData(weekly);
+        setYearlySnapshotData(yearly);
         if (data.length > 0) {
           setSelectedDate(data[data.length - 1].date);
         }
@@ -399,6 +421,7 @@ function App() {
       const deltaLine = getSummaryDeltasNational(
         dataUpToSelected,
         weeklySnapshotData,
+        yearlySnapshotData,
         netMovementPeriod,
         selectedDate,
         summaryEndIndex,
@@ -413,6 +436,7 @@ function App() {
       const deltaLine = getSummaryDeltasOblast(
         dataUpToSelected,
         weeklySnapshotData,
+        yearlySnapshotData,
         netMovementPeriod,
         selectedDate,
         summaryEndIndex,
@@ -450,6 +474,7 @@ function App() {
     viewLevel,
     selectedOblast,
     weeklySnapshotData,
+    yearlySnapshotData,
     netMovementPeriod,
     selectedDate,
     summaryEndIndex,
@@ -463,7 +488,12 @@ function App() {
         dataUpToSelected,
         netMovementPeriod,
         viewLevel === 'oblast' ? selectedOblast : undefined,
-        { weeklySnapshots: weeklySnapshotData, selectedDate, deltaMode: netMovementDeltaMode },
+        {
+          weeklySnapshots: weeklySnapshotData,
+          yearlySnapshots: yearlySnapshotData,
+          selectedDate,
+          deltaMode: netMovementDeltaMode,
+        },
       ),
     [
       dataUpToSelected,
@@ -471,6 +501,7 @@ function App() {
       viewLevel,
       selectedOblast,
       weeklySnapshotData,
+      yearlySnapshotData,
       selectedDate,
       netMovementDeltaMode,
     ],
@@ -520,10 +551,11 @@ function App() {
         oblast.oblast,
         oblastRussianChangePeriod,
         endIdx,
+        { yearlySnapshots: yearlySnapshotData, selectedDate },
       );
     }
     return { totalRuKm2, totalDeltaRuKm2 };
-  }, [activeOblasts, dataUpToSelected, oblastRussianChangePeriod]);
+  }, [activeOblasts, dataUpToSelected, oblastRussianChangePeriod, yearlySnapshotData, selectedDate]);
 
   const formatKm2 = (value: number) => `${Math.round(value).toLocaleString()} km²`;
   const formatPercent = (value: number) => `${Math.round(value).toLocaleString()}%`;
@@ -775,9 +807,18 @@ function App() {
               <h3 className="text-lg font-semibold text-white mb-1">Territory Breakdown</h3>
               <p className="text-[11px] text-gray-500 mb-4 leading-snug">
                 Δ lines follow Area change <span className="text-gray-400">View</span> (
-                {netMovementPeriod === 'day' ? 'Day' : netMovementPeriod === 'week' ? 'Week' : 'Month'}
+                {netMovementPeriod === 'day'
+                  ? 'Day'
+                  : netMovementPeriod === 'week'
+                    ? 'Week'
+                    : netMovementPeriod === 'month'
+                      ? 'Month'
+                      : 'Year'}
                 {netMovementPeriod === 'week' && weeklySnapshotData.length > 0
                   ? ': WoW uses weekly history files when available'
+                  : ''}
+                {netMovementPeriod === 'year' && yearlySnapshotData.length > 0
+                  ? ': YoY uses yearly history files when available'
                   : ''}
                 ).
               </p>
@@ -827,47 +868,41 @@ function App() {
                       <div className="mt-3">
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-2">
                           <p className="text-gray-400 font-medium">Area change</p>
-                          <div className="flex flex-wrap gap-4 items-start">
-                            <div className="flex flex-col items-start gap-1">
-                              <span className="text-[10px] uppercase tracking-wide text-gray-500">View</span>
-                              <div className="flex flex-wrap gap-1">
-                                {(['day', 'week', 'month'] as const).map((p) => (
-                                  <button
-                                    key={p}
-                                    type="button"
-                                    onClick={() => setNetMovementPeriod(p)}
-                                    className={`px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
-                                      netMovementPeriod === p
-                                        ? 'bg-ukraine-blue/25 text-white border-ukraine-blue/50'
-                                        : 'bg-osint-dark text-gray-400 border-osint-border hover:text-gray-200'
-                                    }`}
-                                    aria-pressed={netMovementPeriod === p}
-                                  >
-                                    {p === 'day' ? 'Day' : p === 'week' ? 'Week' : 'Month'}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                            <div className="flex flex-col items-start gap-1">
-                              <span className="text-[10px] uppercase tracking-wide text-gray-500">Metric</span>
-                              <div className="flex flex-wrap gap-1">
-                                {(['russian', 'ukrainian'] as const).map((m) => (
-                                  <button
-                                    key={m}
-                                    type="button"
-                                    onClick={() => setNetMovementDeltaMode(m)}
-                                    className={`px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
-                                      netMovementDeltaMode === m
-                                        ? 'bg-ukraine-blue/25 text-white border-ukraine-blue/50'
-                                        : 'bg-osint-dark text-gray-400 border-osint-border hover:text-gray-200'
-                                    }`}
-                                    aria-pressed={netMovementDeltaMode === m}
-                                  >
-                                    {m === 'russian' ? 'Russian Δ' : 'Ukrainian Δ'}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
+                          <div className="flex flex-wrap gap-3 items-center">
+                            <label className="flex items-center gap-2 min-w-0">
+                              <span className="text-[10px] uppercase tracking-wide text-gray-500 shrink-0">
+                                View
+                              </span>
+                              <select
+                                value={netMovementPeriod}
+                                onChange={(e) =>
+                                  setNetMovementPeriod(e.target.value as OblastRussianChangePeriod)
+                                }
+                                className="min-w-[7.5rem] bg-osint-dark border border-osint-border rounded-md px-2 py-1 text-xs text-white focus:outline-none focus:ring-2 focus:ring-ukraine-blue/40"
+                                aria-label="Area change time range"
+                              >
+                                <option value="day">Day</option>
+                                <option value="week">Week</option>
+                                <option value="month">Month</option>
+                                <option value="year">Year</option>
+                              </select>
+                            </label>
+                            <label className="flex items-center gap-2 min-w-0">
+                              <span className="text-[10px] uppercase tracking-wide text-gray-500 shrink-0">
+                                Metric
+                              </span>
+                              <select
+                                value={netMovementDeltaMode}
+                                onChange={(e) =>
+                                  setNetMovementDeltaMode(e.target.value as NetMovementDeltaMode)
+                                }
+                                className="min-w-[8rem] bg-osint-dark border border-osint-border rounded-md px-2 py-1 text-xs text-white focus:outline-none focus:ring-2 focus:ring-ukraine-blue/40"
+                                aria-label="Area change metric"
+                              >
+                                <option value="russian">Russian Δ</option>
+                                <option value="ukrainian">Ukrainian Δ</option>
+                              </select>
+                            </label>
                           </div>
                         </div>
                         <p className="text-xs text-gray-500 mb-2 leading-snug">
@@ -883,6 +918,10 @@ function App() {
                               : ' Week: last 6 ISO weeks with data, first vs last snapshot in each week.')}
                           {netMovementPeriod === 'month' &&
                             ' Month: six completed calendar months; sparse months may use weekly interpolation at month bounds.'}
+                          {netMovementPeriod === 'year' &&
+                            (yearlySnapshotData.length >= 2
+                              ? ' Year: yearly history anchors (YoY); tail may use interpolation to your viewed date.'
+                              : ' Year: last six calendar years from loaded dailies (first vs last snapshot per year).')}
                         </p>
                         <div
                           className={`w-full ${netMovementPeriod === 'day' ? 'h-[200px]' : 'h-[172px]'}`}
@@ -921,7 +960,9 @@ function App() {
                                           ? 'Need 2+ snapshots in week'
                                           : netMovementPeriod === 'month'
                                             ? 'Need 2+ snapshots in month'
-                                            : 'No value'}
+                                            : netMovementPeriod === 'year'
+                                              ? 'Need 2+ snapshots or yearly anchors'
+                                              : 'No value'}
                                       </div>
                                     );
                                   }
@@ -996,39 +1037,33 @@ function App() {
                     Oblast Breakdown - Russian Controlled Territory
                   </h3>
                   <div className="flex flex-col items-stretch sm:items-end gap-1 shrink-0 min-w-0">
-                    <div className="flex items-center gap-1.5 flex-nowrap">
+                    <label className="flex items-center gap-1.5 flex-nowrap min-w-0 justify-end">
                       <span className="text-[10px] uppercase tracking-wide text-gray-500 whitespace-nowrap shrink-0">
                         Δ RU
                       </span>
-                      <div className="flex flex-nowrap gap-0.5">
-                        {(['day', 'week', 'month'] as const).map((p) => (
-                          <button
-                            key={p}
-                            type="button"
-                            onClick={() => setOblastRussianChangePeriod(p)}
-                            className={`px-2 py-0.5 rounded text-[11px] font-medium border transition-colors whitespace-nowrap shrink-0 ${
-                              oblastRussianChangePeriod === p
-                                ? 'bg-ukraine-blue/25 text-white border-ukraine-blue/50'
-                                : 'bg-osint-dark text-gray-400 border-osint-border hover:text-gray-200'
-                            }`}
-                            aria-pressed={oblastRussianChangePeriod === p}
-                            title={
-                              p === 'day'
-                                ? 'Vs previous snapshot'
-                                : p === 'week'
-                                  ? 'Vs ~7 days (first snapshot in window)'
-                                  : 'Vs ~30 days (first snapshot in window)'
-                            }
-                          >
-                            {p === 'day' ? 'Day' : p === 'week' ? 'Week' : 'Month'}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                      <select
+                        value={oblastRussianChangePeriod}
+                        onChange={(e) =>
+                          setOblastRussianChangePeriod(e.target.value as OblastRussianChangePeriod)
+                        }
+                        title="Period for Russian Δ column"
+                        className="max-w-[11rem] bg-osint-dark border border-osint-border rounded-md px-2 py-1 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-ukraine-blue/40"
+                        aria-label="Period for oblast Russian delta"
+                      >
+                        <option value="day">Day</option>
+                        <option value="week">Week (~7d)</option>
+                        <option value="month">Month (~30d)</option>
+                        <option value="year">Year (~365d)</option>
+                      </select>
+                    </label>
                     <p className="text-[9px] text-gray-600 text-left sm:text-right leading-tight max-w-[18rem]">
                       {oblastRussianChangePeriod === 'day' && 'Previous available snapshot.'}
                       {oblastRussianChangePeriod === 'week' && 'Earliest snapshot on or after 7 days before viewed date.'}
                       {oblastRussianChangePeriod === 'month' && 'Earliest snapshot on or after 30 days before viewed date.'}
+                      {oblastRussianChangePeriod === 'year' &&
+                        (yearlySnapshotData.length > 0
+                          ? 'YoY from yearly history when available; else ~365d window.'
+                          : 'Earliest snapshot on or after 365 days before viewed date.')}
                     </p>
                   </div>
                 </div>
@@ -1092,6 +1127,7 @@ function App() {
                                 oblast.oblast,
                                 oblastRussianChangePeriod,
                                 endIdx,
+                                { yearlySnapshots: yearlySnapshotData, selectedDate },
                               )
                             : 0;
                         const dRuClass =
@@ -1278,6 +1314,9 @@ function App() {
                 {weeklySnapshotData.length > 0
                   ? ` • ${weeklySnapshotData.length} weekly anchors`
                   : ''}
+                {yearlySnapshotData.length > 0
+                  ? ` • ${yearlySnapshotData.length} yearly anchors`
+                  : ''}
               </p>
               <p className="text-xs text-gray-600 mt-1">
                 <a 
@@ -1338,6 +1377,11 @@ function App() {
                 one point every 7 days in UTC from 2026-01-01, with week-over-week deltas vs the prior weekly
                 file. Anchor dates are labels; tooltips note Wayback or derived-from-daily/weekly when the
                 extractor filled a point from a nearby capture.
+              </li>
+              <li>
+                Yearly series (when available) use <code className="text-gray-400">data/history/yearly/</code>:
+                year-over-year deltas vs the prior yearly anchor. Without those files, the app falls back to
+                calendar-year ranges from daily snapshots.
               </li>
               <li>Values are estimates from map geometry — not official government accounting.</li>
               <li>Use Prev / Next to step between available dates, or pick any date and we&apos;ll snap to the nearest snapshot.</li>
