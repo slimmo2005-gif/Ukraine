@@ -528,6 +528,9 @@ function weeklyAnchorsOnOrBefore(
 
 export type OblastRussianChangePeriod = 'day' | 'week' | 'month';
 
+/** Net-movement chart: bar height is Russian Δ or Ukrainian Δ (not composite net). */
+export type NetMovementDeltaMode = 'russian' | 'ukrainian';
+
 /** Deltas under Territory Breakdown; aligns with Net movement Day / Week / Month. */
 export interface SummaryDeltaLine {
   russianChange: number;
@@ -743,12 +746,14 @@ export interface CompletedMonthNetRow {
   month: number;
   monthKey: string;
   label: string;
-  netKm2: number;
-  netPctOfTotalUkraine: number;
+  russianDeltaKm2: number;
+  ukrainianDeltaKm2: number;
+  /** Denominator for % of Ukraine (last day of month snapshot or weekly bridge end). */
+  areaDenominatorKm2: number;
   snapshotCount: number;
   startDate: string | null;
   endDate: string | null;
-  /** When daily has fewer than two points in the month, net may come from weekly anchors (interp at month bounds). */
+  /** When daily has fewer than two points in the month, deltas may come from weekly anchors (interp at month bounds). */
   source?: 'daily' | 'weekly_bridge';
 }
 
@@ -761,13 +766,19 @@ function lastDayKeyOfMonth(year: number, month1: number): string {
   return `${year}-${String(month1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
-/** Net movement for a calendar month using interpolated weekly state at month start/end. */
+/** Russian and Ukrainian deltas for a calendar month using interpolated weekly state at month start/end. */
 function tryMonthNetFromWeekly(
   weeklySortedAsc: DailyTerritoryData[],
   year: number,
   month1: number,
   oblast?: OblastKey,
-): { netKm2: number; netPctOfTotalUkraine: number; startDate: string; endDate: string } | null {
+): {
+  russianDeltaKm2: number;
+  ukrainianDeltaKm2: number;
+  areaDenominatorKm2: number;
+  startDate: string;
+  endDate: string;
+} | null {
   if (weeklySortedAsc.length < 2) {
     return null;
   }
@@ -779,43 +790,74 @@ function tryMonthNetFromWeekly(
   if (!startState || !endState) {
     return null;
   }
-  const netKm2 = oblast ? netMovementOblast(startState, endState, oblast) : netMovementNational(startState, endState);
-  const totalUkraine = Math.max(endState.total_area_km2, 1);
+  const russianDeltaKm2 = oblast
+    ? deltaRussianOblastPair(startState, endState, oblast)
+    : deltaRussianNationalPair(startState, endState);
+  const ukrainianDeltaKm2 = oblast
+    ? deltaUkrainianOblastPair(startState, endState, oblast)
+    : deltaUkrainianNationalPair(startState, endState);
+  const areaDenominatorKm2 = Math.max(endState.total_area_km2, 1);
   return {
-    netKm2,
-    netPctOfTotalUkraine: (netKm2 / totalUkraine) * 100,
+    russianDeltaKm2,
+    ukrainianDeltaKm2,
+    areaDenominatorKm2,
     startDate: startKey,
     endDate: endKey,
   };
 }
 
-function netMovementNational(startDay: DailyTerritoryData, endDay: DailyTerritoryData): number {
-  const r0 = startDay.total_russian_controlled_km2;
-  const r1 = endDay.total_russian_controlled_km2;
-  const u0 = startDay.total_area_km2 - r0 - startDay.total_disputed_km2;
-  const u1 = endDay.total_area_km2 - r1 - endDay.total_disputed_km2;
-  return r1 - r0 - (u1 - u0);
+function nationalDerivedUkrainianKm2(d: DailyTerritoryData): number {
+  return d.total_area_km2 - d.total_russian_controlled_km2 - d.total_disputed_km2;
 }
 
-function netMovementOblast(
-  startDay: DailyTerritoryData,
-  endDay: DailyTerritoryData,
+function deltaRussianNationalPair(start: DailyTerritoryData, end: DailyTerritoryData): number {
+  return end.total_russian_controlled_km2 - start.total_russian_controlled_km2;
+}
+
+function deltaUkrainianNationalPair(start: DailyTerritoryData, end: DailyTerritoryData): number {
+  return nationalDerivedUkrainianKm2(end) - nationalDerivedUkrainianKm2(start);
+}
+
+function deltaRussianOblastPair(
+  start: DailyTerritoryData,
+  end: DailyTerritoryData,
   oblast: OblastKey,
 ): number {
-  const sRow = startDay.oblasts.find((o) => o.oblast === oblast);
-  const eRow = endDay.oblasts.find((o) => o.oblast === oblast);
-  const r0 = sRow?.russian_controlled_km2 ?? 0;
-  const r1 = eRow?.russian_controlled_km2 ?? 0;
-  const u0 = sRow?.ukrainian_controlled_km2 ?? 0;
-  const u1 = eRow?.ukrainian_controlled_km2 ?? 0;
-  return r1 - r0 - (u1 - u0);
+  const a = start.oblasts.find((o) => o.oblast === oblast);
+  const b = end.oblasts.find((o) => o.oblast === oblast);
+  return (b?.russian_controlled_km2 ?? 0) - (a?.russian_controlled_km2 ?? 0);
+}
+
+function deltaUkrainianOblastPair(
+  start: DailyTerritoryData,
+  end: DailyTerritoryData,
+  oblast: OblastKey,
+): number {
+  const a = start.oblasts.find((o) => o.oblast === oblast);
+  const b = end.oblasts.find((o) => o.oblast === oblast);
+  return (b?.ukrainian_controlled_km2 ?? 0) - (a?.ukrainian_controlled_km2 ?? 0);
+}
+
+function pairDelta(
+  start: DailyTerritoryData,
+  end: DailyTerritoryData,
+  mode: NetMovementDeltaMode,
+  oblast?: OblastKey,
+): number {
+  if (oblast) {
+    return mode === 'ukrainian'
+      ? deltaUkrainianOblastPair(start, end, oblast)
+      : deltaRussianOblastPair(start, end, oblast);
+  }
+  return mode === 'ukrainian'
+    ? deltaUkrainianNationalPair(start, end)
+    : deltaRussianNationalPair(start, end);
 }
 
 /**
  * Six most recent completed calendar months (e.g. with data ending May 2026 → Nov 2025 … Apr 2026),
- * each with net movement (Δ Russian − Δ Ukrainian controlled) from first to last snapshot in that month.
- * Percent uses total Ukraine area on the month's last snapshot.
- * When a month has fewer than two daily snapshots but `weeklySnapshots` has ≥2 anchors, net is estimated
+ * each with Russian and Ukrainian controlled-area deltas from first to last snapshot in that month.
+ * When a month has fewer than two daily snapshots but `weeklySnapshots` has ≥2 anchors, deltas are estimated
  * from interpolated weekly state at the first and last calendar day of that month.
  */
 export function getLastSixCompletedMonthsNetMovement(
@@ -837,8 +879,9 @@ export function getLastSixCompletedMonthsNetMovement(
     const key = monthKey(year, month);
     const inMonth = data.filter((d) => d.date.startsWith(key));
 
-    let netKm2 = 0;
-    let netPctOfTotalUkraine = 0;
+    let russianDeltaKm2 = 0;
+    let ukrainianDeltaKm2 = 0;
+    let areaDenominatorKm2 = 0;
     let startDate: string | null = null;
     let endDate: string | null = null;
     let snapshotCount = inMonth.length;
@@ -849,14 +892,19 @@ export function getLastSixCompletedMonthsNetMovement(
       const end = inMonth[inMonth.length - 1];
       startDate = start.date;
       endDate = end.date;
-      netKm2 = oblast ? netMovementOblast(start, end, oblast) : netMovementNational(start, end);
-      const totalUkraine = Math.max(end.total_area_km2, 1);
-      netPctOfTotalUkraine = (netKm2 / totalUkraine) * 100;
+      russianDeltaKm2 = oblast
+        ? deltaRussianOblastPair(start, end, oblast)
+        : deltaRussianNationalPair(start, end);
+      ukrainianDeltaKm2 = oblast
+        ? deltaUkrainianOblastPair(start, end, oblast)
+        : deltaUkrainianNationalPair(start, end);
+      areaDenominatorKm2 = Math.max(end.total_area_km2, 1);
     } else if (weeklySnapshots && weeklySnapshots.length >= 2) {
       const bridged = tryMonthNetFromWeekly(weeklySnapshots, year, month, oblast);
       if (bridged) {
-        netKm2 = bridged.netKm2;
-        netPctOfTotalUkraine = bridged.netPctOfTotalUkraine;
+        russianDeltaKm2 = bridged.russianDeltaKm2;
+        ukrainianDeltaKm2 = bridged.ukrainianDeltaKm2;
+        areaDenominatorKm2 = bridged.areaDenominatorKm2;
         startDate = bridged.startDate;
         endDate = bridged.endDate;
         snapshotCount = 2;
@@ -872,8 +920,9 @@ export function getLastSixCompletedMonthsNetMovement(
       month,
       monthKey: key,
       label: formatCompletedMonthLabel(year, month),
-      netKm2,
-      netPctOfTotalUkraine,
+      russianDeltaKm2,
+      ukrainianDeltaKm2,
+      areaDenominatorKm2,
       snapshotCount,
       startDate,
       endDate,
@@ -1097,23 +1146,16 @@ export function buildWeeklyHistoryNetSegments(
   return segments;
 }
 
-function netMovementNationalOrOblast(
-  startDay: DailyTerritoryData,
-  endDay: DailyTerritoryData,
-  oblast?: OblastKey,
-): number {
-  return oblast ? netMovementOblast(startDay, endDay, oblast) : netMovementNational(startDay, endDay);
-}
-
 /**
- * Net-movement bars from `data/history/weekly` anchors (WoW), optionally ending with a segment
+ * Territory-change bars from `data/history/weekly` anchors (WoW), optionally ending with a segment
  * to the viewed date via linear interpolation/extrapolation between nearest anchors.
  */
 export function getWeeklyHistoryNetMovementRows(
   weeklySortedAsc: DailyTerritoryData[],
   selectedDate: string,
-  oblast?: OblastKey,
-  maxBars = 6,
+  oblast: OblastKey | undefined,
+  maxBars: number,
+  deltaMode: NetMovementDeltaMode,
 ): NetMovementBarRow[] {
   const segments = buildWeeklyHistoryNetSegments(weeklySortedAsc, selectedDate);
   if (segments.length === 0) {
@@ -1124,7 +1166,7 @@ export function getWeeklyHistoryNetMovementRows(
   const out: NetMovementBarRow[] = [];
 
   for (const seg of lastBars) {
-    const netKm2 = netMovementNationalOrOblast(seg.start, seg.end, oblast);
+    const netKm2 = pairDelta(seg.start, seg.end, deltaMode, oblast);
     const totalUkraine = Math.max(seg.end.total_area_km2, 1);
     const pct = (netKm2 / totalUkraine) * 100;
     out.push({
@@ -1142,16 +1184,6 @@ export function getWeeklyHistoryNetMovementRows(
   return out;
 }
 
-function netStepNational(data: DailyTerritoryData[], index: number): number {
-  const d = getDerivedTotalChanges(data, index);
-  return d.russianChange - d.ukrainianChange;
-}
-
-function netStepOblast(data: DailyTerritoryData[], index: number, oblast: OblastKey): number {
-  const d = getDerivedOblastChanges(data, index, oblast);
-  return d.russianChange - d.ukrainianChange;
-}
-
 function weekBucketKeyFromDateString(dateStr: string): string {
   const d = parseLocalDateKey(dateStr);
   const y = d.getFullYear();
@@ -1166,19 +1198,25 @@ function formatWeekAxisLabel(weekKey: string): string {
 }
 
 /**
- * Bars for the territory net-movement chart: Δ Russian − Δ Ukrainian per step (national or oblast).
- * Day: last 14 snapshots. Week: weekly JSON history (WoW) when provided, else last 6 ISO weeks in daily data.
+ * Bars for territory controlled-area change: either Δ Russian or Δ Ukrainian per step (national or oblast).
+ * Day: last 14 snapshots vs previous. Week: weekly JSON (WoW) when provided, else ISO weeks from dailies.
  * Month: six completed calendar months.
  */
 export function getNetMovementChartRows(
   data: DailyTerritoryData[],
   period: OblastRussianChangePeriod,
   oblast?: OblastKey,
-  options?: { weeklySnapshots?: DailyTerritoryData[]; selectedDate?: string },
+  options?: {
+    weeklySnapshots?: DailyTerritoryData[];
+    selectedDate?: string;
+    deltaMode?: NetMovementDeltaMode;
+  },
 ): NetMovementBarRow[] {
   if (data.length < 1) {
     return [];
   }
+
+  const mode: NetMovementDeltaMode = options?.deltaMode ?? 'russian';
 
   if (period === 'day') {
     const maxBars = 14;
@@ -1187,7 +1225,8 @@ export function getNetMovementChartRows(
     const out: NetMovementBarRow[] = [];
     for (let i = start; i < n; i++) {
       const day = data[i];
-      const net = oblast ? netStepOblast(data, i, oblast) : netStepNational(data, i);
+      const d = oblast ? getDerivedOblastChanges(data, i, oblast) : getDerivedTotalChanges(data, i);
+      const net = mode === 'ukrainian' ? d.ukrainianChange : d.russianChange;
       const totalUkraine = Math.max(day.total_area_km2, 1);
       const pct = (net / totalUkraine) * 100;
       out.push({
@@ -1205,7 +1244,7 @@ export function getNetMovementChartRows(
     const weekly = options?.weeklySnapshots;
     if (weekly && weekly.length >= 2) {
       const sel = options?.selectedDate ?? data[data.length - 1]?.date ?? '';
-      const fromRepo = getWeeklyHistoryNetMovementRows(weekly, sel, oblast, 6);
+      const fromRepo = getWeeklyHistoryNetMovementRows(weekly, sel, oblast, 6, mode);
       if (fromRepo.length > 0) {
         return fromRepo;
       }
@@ -1223,7 +1262,7 @@ export function getNetMovementChartRows(
       if (inWeek.length >= 2) {
         const a = inWeek[0];
         const b = inWeek[inWeek.length - 1];
-        const netKm2 = oblast ? netMovementOblast(a, b, oblast) : netMovementNational(a, b);
+        const netKm2 = pairDelta(a, b, mode, oblast);
         const totalUkraine = Math.max(b.total_area_km2, 1);
         out.push({
           periodLabel: formatWeekAxisLabel(wk),
@@ -1249,12 +1288,15 @@ export function getNetMovementChartRows(
   return months.map((row) => {
     const [yy, mm] = row.monthKey.split('-');
     const periodLabel = `${SHORT_MONTH[parseInt(mm, 10) - 1]}-${yy.slice(-2)}`;
-    const canPlot = row.snapshotCount >= 2;
+    const canPlot = row.snapshotCount >= 2 && row.areaDenominatorKm2 > 0;
+    const raw =
+      mode === 'ukrainian' ? row.ukrainianDeltaKm2 : row.russianDeltaKm2;
+    const pct = canPlot ? (raw / row.areaDenominatorKm2) * 100 : null;
     return {
       periodLabel,
-      netKm2: canPlot ? row.netKm2 : 0,
-      fullNet: canPlot ? row.netKm2 : null,
-      pct: canPlot ? row.netPctOfTotalUkraine : null,
+      netKm2: canPlot ? raw : 0,
+      fullNet: canPlot ? raw : null,
+      pct,
       hasData: canPlot,
       tooltipNote:
         row.source === 'weekly_bridge'

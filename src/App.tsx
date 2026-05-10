@@ -30,6 +30,7 @@ import {
   getSummaryDeltasOblast,
   type NetMovementBarRow,
   type OblastRussianChangePeriod,
+  type NetMovementDeltaMode,
 } from '@/utils/calculations';
 import type { DataSource, ViewLevel, OblastKey, DailyTerritoryData } from '@/types';
 
@@ -165,7 +166,7 @@ async function fetchDateRange(startDate: Date, endDate: Date): Promise<DailyTerr
 
   const dateSources = await discoverDateSources();
 
-  let dateKeys = Array.from(dateSources.keys())
+  const dateKeys = Array.from(dateSources.keys())
     .filter((dateKey) => dateKey >= startKey && dateKey <= endKey)
     .sort();
 
@@ -243,7 +244,7 @@ function formatShortDate(dateKey: string): string {
 }
 
 /** Recharts `<Bar label={…} />` passes geometry + payload per cell; show signed km² only (no %). */
-function renderNetMovementBarValueLabel(rows: NetMovementBarRow[]) {
+function renderNetMovementBarValueLabel(rows: NetMovementBarRow[], deltaMode: NetMovementDeltaMode) {
   return (raw: unknown) => {
     const p = raw as {
       x?: number;
@@ -270,7 +271,18 @@ function renderNetMovementBarValueLabel(rows: NetMovementBarRow[]) {
 
     const net = payload.fullNet;
     const text = `${net >= 0 ? '+' : ''}${Math.round(net).toLocaleString()}`;
-    const fill = net > 0 ? '#f87171' : net < 0 ? '#60a5fa' : '#d1d5db';
+    const fill =
+      deltaMode === 'russian'
+        ? net > 0
+          ? '#f87171'
+          : net < 0
+            ? '#60a5fa'
+            : '#d1d5db'
+        : net > 0
+          ? '#60a5fa'
+          : net < 0
+            ? '#f87171'
+            : '#d1d5db';
     const above = net >= 0;
     const labelY = above ? y - 8 : y + Math.max(height, 0) + 14;
 
@@ -296,6 +308,7 @@ function App() {
   const [oblastRussianChangePeriod, setOblastRussianChangePeriod] =
     useState<OblastRussianChangePeriod>('day');
   const [netMovementPeriod, setNetMovementPeriod] = useState<OblastRussianChangePeriod>('month');
+  const [netMovementDeltaMode, setNetMovementDeltaMode] = useState<NetMovementDeltaMode>('russian');
   const [adminOpen, setAdminOpen] = useState(() =>
     typeof window !== 'undefined' && window.location.hash.toLowerCase() === '#admin',
   );
@@ -474,9 +487,17 @@ function App() {
         dataUpToSelected,
         netMovementPeriod,
         viewLevel === 'oblast' ? selectedOblast : undefined,
-        { weeklySnapshots: weeklySnapshotData, selectedDate },
+        { weeklySnapshots: weeklySnapshotData, selectedDate, deltaMode: netMovementDeltaMode },
       ),
-    [dataUpToSelected, netMovementPeriod, viewLevel, selectedOblast, weeklySnapshotData, selectedDate],
+    [
+      dataUpToSelected,
+      netMovementPeriod,
+      viewLevel,
+      selectedOblast,
+      weeklySnapshotData,
+      selectedDate,
+      netMovementDeltaMode,
+    ],
   );
 
   const netMovementYDomain = useMemo((): [number, number] => {
@@ -777,7 +798,7 @@ function App() {
             <div className="bg-osint-card rounded-lg p-6 border border-osint-border">
               <h3 className="text-lg font-semibold text-white mb-1">Territory Breakdown</h3>
               <p className="text-[11px] text-gray-500 mb-4 leading-snug">
-                Δ lines follow Net movement <span className="text-gray-400">View</span> (
+                Δ lines follow Area change <span className="text-gray-400">View</span> (
                 {netMovementPeriod === 'day' ? 'Day' : netMovementPeriod === 'week' ? 'Week' : 'Month'}
                 {netMovementPeriod === 'week' && weeklySnapshotData.length > 0
                   ? ': WoW uses weekly history files when available'
@@ -828,39 +849,64 @@ function App() {
                         <span className="text-white font-bold">{formatKm2(totalArea)}</span>
                       </div>
                       <div className="mt-3">
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between mb-2">
-                          <p className="text-gray-400 font-medium">Net movement</p>
-                          <div className="flex flex-col items-start gap-1">
-                            <span className="text-[10px] uppercase tracking-wide text-gray-500">View</span>
-                            <div className="flex flex-wrap gap-1">
-                              {(['day', 'week', 'month'] as const).map((p) => (
-                                <button
-                                  key={p}
-                                  type="button"
-                                  onClick={() => setNetMovementPeriod(p)}
-                                  className={`px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
-                                    netMovementPeriod === p
-                                      ? 'bg-ukraine-blue/25 text-white border-ukraine-blue/50'
-                                      : 'bg-osint-dark text-gray-400 border-osint-border hover:text-gray-200'
-                                  }`}
-                                  aria-pressed={netMovementPeriod === p}
-                                >
-                                  {p === 'day' ? 'Day' : p === 'week' ? 'Week' : 'Month'}
-                                </button>
-                              ))}
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-2">
+                          <p className="text-gray-400 font-medium">Area change</p>
+                          <div className="flex flex-wrap gap-4 items-start">
+                            <div className="flex flex-col items-start gap-1">
+                              <span className="text-[10px] uppercase tracking-wide text-gray-500">View</span>
+                              <div className="flex flex-wrap gap-1">
+                                {(['day', 'week', 'month'] as const).map((p) => (
+                                  <button
+                                    key={p}
+                                    type="button"
+                                    onClick={() => setNetMovementPeriod(p)}
+                                    className={`px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
+                                      netMovementPeriod === p
+                                        ? 'bg-ukraine-blue/25 text-white border-ukraine-blue/50'
+                                        : 'bg-osint-dark text-gray-400 border-osint-border hover:text-gray-200'
+                                    }`}
+                                    aria-pressed={netMovementPeriod === p}
+                                  >
+                                    {p === 'day' ? 'Day' : p === 'week' ? 'Week' : 'Month'}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="flex flex-col items-start gap-1">
+                              <span className="text-[10px] uppercase tracking-wide text-gray-500">Metric</span>
+                              <div className="flex flex-wrap gap-1">
+                                {(['russian', 'ukrainian'] as const).map((m) => (
+                                  <button
+                                    key={m}
+                                    type="button"
+                                    onClick={() => setNetMovementDeltaMode(m)}
+                                    className={`px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
+                                      netMovementDeltaMode === m
+                                        ? 'bg-ukraine-blue/25 text-white border-ukraine-blue/50'
+                                        : 'bg-osint-dark text-gray-400 border-osint-border hover:text-gray-200'
+                                    }`}
+                                    aria-pressed={netMovementDeltaMode === m}
+                                  >
+                                    {m === 'russian' ? 'Russian Δ' : 'Ukrainian Δ'}
+                                  </button>
+                                ))}
+                              </div>
                             </div>
                           </div>
                         </div>
                         <p className="text-xs text-gray-500 mb-2 leading-snug">
-                          Positive = net toward Russian control (Ukraine → Russia). Hover for % of Ukraine.
+                          {netMovementDeltaMode === 'russian'
+                            ? 'Bars show change in Russian-controlled km² for each period. Red = gain, blue = loss vs segment start.'
+                            : 'Bars show change in Ukrainian-held km² (oblast rows use reported Ukrainian area; national uses total − Russian − disputed). Blue = gain, red = loss.'}{' '}
+                          Hover for % of Ukraine.
                           {netMovementPeriod === 'day' &&
-                            ' Day: last up to 14 snapshots. Each bar is Δ Russian − Δ Ukrainian controlled vs the previous snapshot (not Russian-only change; Ukrainian here is total − Russian − disputed).'}
+                            ' Day: last up to 14 snapshots vs previous available snapshot.'}
                           {netMovementPeriod === 'week' &&
                             (weeklySnapshotData.length >= 2
-                              ? ' Week: last up to 6 moves from weekly history (WoW between anchors); tail bar can end at your viewed date via linear interpolation between anchors (or extrapolation past the latest anchor).'
+                              ? ' Week: weekly history anchors (WoW); tail may use interpolation to your viewed date.'
                               : ' Week: last 6 ISO weeks with data, first vs last snapshot in each week.')}
                           {netMovementPeriod === 'month' &&
-                            ' Month: six completed calendar months (first vs last daily snapshot in each month). Months with fewer than two dailies use weekly history interpolated to month start/end when available.'}
+                            ' Month: six completed calendar months; sparse months may use weekly interpolation at month bounds.'}
                         </p>
                         <div
                           className={`w-full ${netMovementPeriod === 'day' ? 'h-[200px]' : 'h-[172px]'}`}
@@ -906,6 +952,11 @@ function App() {
                                   const v = p.fullNet;
                                   return (
                                     <div className="bg-osint-card border border-osint-border p-2 rounded-lg shadow-xl text-xs max-w-xs">
+                                      <p className="text-gray-500 text-[10px] uppercase tracking-wide mb-1">
+                                        {netMovementDeltaMode === 'russian'
+                                          ? 'Δ Russian-controlled'
+                                          : 'Δ Ukrainian-held'}
+                                      </p>
                                       <p className="text-gray-200 font-medium">
                                         {v >= 0 ? '+' : ''}
                                         {Math.round(v).toLocaleString()} km²
@@ -925,7 +976,10 @@ function App() {
                                 dataKey="netKm2"
                                 maxBarSize={44}
                                 radius={[2, 2, 0, 0]}
-                                label={renderNetMovementBarValueLabel(netMovementChartRows)}
+                                label={renderNetMovementBarValueLabel(
+                                  netMovementChartRows,
+                                  netMovementDeltaMode,
+                                )}
                               >
                                 {netMovementChartRows.map((entry, barIdx) => {
                                   const RUSSIAN_BAR = '#ef4444';
@@ -934,9 +988,15 @@ function App() {
                                   let opacity = 0.35;
                                   if (entry.hasData && entry.fullNet !== null) {
                                     opacity = 1;
-                                    if (entry.fullNet > 0) fill = RUSSIAN_BAR;
-                                    else if (entry.fullNet < 0) fill = UKRAINIAN_BAR;
-                                    else fill = '#94a3b8';
+                                    if (netMovementDeltaMode === 'russian') {
+                                      if (entry.fullNet > 0) fill = RUSSIAN_BAR;
+                                      else if (entry.fullNet < 0) fill = UKRAINIAN_BAR;
+                                      else fill = '#94a3b8';
+                                    } else {
+                                      if (entry.fullNet > 0) fill = UKRAINIAN_BAR;
+                                      else if (entry.fullNet < 0) fill = RUSSIAN_BAR;
+                                      else fill = '#94a3b8';
+                                    }
                                   }
                                   return (
                                     <Cell key={`${entry.periodLabel}-${barIdx}`} fill={fill} fillOpacity={opacity} />
