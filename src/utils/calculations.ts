@@ -419,16 +419,18 @@ export function aggregateMonthly(data: DailyTerritoryData[]): AggregatedData[] {
     });
   });
   
-  return Array.from(monthly.entries()).map(([period, values]) => ({
-    period,
-    russianAvg: parseFloat((values.russianControlSum / values.days).toFixed(1)),
-    ukrainianAvg: parseFloat((values.ukrainianControlSum / values.days).toFixed(1)),
-    disputedAvg: parseFloat((values.disputedControlSum / values.days).toFixed(1)),
-    russianChangeSum: parseFloat(values.russianChangeSum.toFixed(1)),
-    ukrainianChangeSum: parseFloat(values.ukrainianChangeSum.toFixed(1)),
-    disputedChangeSum: parseFloat(values.disputedChangeSum.toFixed(1)),
-    daysCount: values.days,
-  }));
+  return Array.from(monthly.entries())
+    .map(([period, values]) => ({
+      period,
+      russianAvg: parseFloat((values.russianControlSum / values.days).toFixed(1)),
+      ukrainianAvg: parseFloat((values.ukrainianControlSum / values.days).toFixed(1)),
+      disputedAvg: parseFloat((values.disputedControlSum / values.days).toFixed(1)),
+      russianChangeSum: parseFloat(values.russianChangeSum.toFixed(1)),
+      ukrainianChangeSum: parseFloat(values.ukrainianChangeSum.toFixed(1)),
+      disputedChangeSum: parseFloat(values.disputedChangeSum.toFixed(1)),
+      daysCount: values.days,
+    }))
+    .sort((a, b) => a.period.localeCompare(b.period));
 }
 
 /**
@@ -1900,8 +1902,8 @@ export function formatDate(dateStr: string): string {
  * Formats period string for display
  */
 export function formatPeriod(period: string, range: TimeRange | 'monthly'): string {
-  if (range === 'weekly') {
-    return period; // Already formatted as YYYY-W##
+  if (/^\d{4}-W\d{2}$/.test(period)) {
+    return period;
   }
   if (range === 'yearly') {
     return period;

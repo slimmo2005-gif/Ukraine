@@ -6,7 +6,7 @@ import { TerritoryChart } from './TerritoryChart';
 /**
  * ChartSection - Container for chart with time range toggle
  * chartType: 'control' shows territory control levels
- * chartType: 'change' shows daily/period changes
+ * chartType: 'change' shows period changes
  */
 interface ChartSectionProps {
   dailyData: DailyTerritoryData[];
@@ -25,15 +25,14 @@ export function ChartSection({
   title,
   chartType,
 }: ChartSectionProps) {
-  const [timeRange, setTimeRange] = useState<TimeRange>('daily');
-  const usingRepoWeekly = timeRange === 'weekly' && weeklySnapshotData.length > 0;
+  const [timeRange, setTimeRange] = useState<TimeRange>('monthly');
 
   const resolvedTitle =
-    chartType === 'change' && timeRange === 'weekly'
-      ? usingRepoWeekly
-        ? 'Week-over-week changes'
-        : 'Weekly changes (from daily)'
-      : title;
+    chartType === 'change' && timeRange === 'yearly'
+      ? 'Yearly changes'
+      : chartType === 'change' && timeRange === 'monthly'
+        ? 'Monthly changes'
+        : title;
 
   return (
     <div className="bg-osint-card rounded-lg p-6 border border-osint-border">
@@ -41,28 +40,34 @@ export function ChartSection({
         <h3 className="text-lg font-semibold text-white">{resolvedTitle}</h3>
         <TimeRangeToggle value={timeRange} onChange={setTimeRange} />
       </div>
-      {timeRange === 'weekly' && (
+      {timeRange === 'monthly' && (
         <p className="text-xs text-gray-500 mb-4 leading-snug">
-          {usingRepoWeekly ? (
+          {chartType === 'control' ? (
             <>
-              Weekly series uses <code className="text-gray-400">data/history/weekly/</code> anchors every
-              7 days in UTC from 2026-01-01 (not every calendar week). Changes are week-over-week vs the
-              prior anchor in that series. Hover points for Wayback / derived-from notes when present.
+              Bars show each category as a <strong>percentage of total Ukraine area</strong> for that month
+              (from daily snapshots up to your selected date). Labels are %; hover shows km².
             </>
           ) : (
             <>
-              No weekly snapshot files found yet; showing ISO-week sums from loaded daily snapshots instead.
+              Monthly bars sum daily net changes within each calendar month from loaded daily snapshots.
             </>
           )}
         </p>
       )}
       {timeRange === 'yearly' && (
         <p className="text-xs text-gray-500 mb-4 leading-snug">
-          Yearly view prefers <code className="text-gray-400">data/history/yearly</code> (or{' '}
-          <code className="text-gray-400">annual/</code>) when at least two anchors exist; otherwise one point
-          per calendar year from the <strong>last weekly</strong> snapshot on or before your selected date
-          (aligned with Summary YoY). If neither is available, it falls back to averages from loaded daily
-          snapshots only (often a short window).
+          {chartType === 'control' ? (
+            <>
+              Yearly bars prefer <code className="text-gray-400">data/history/yearly</code> (or{' '}
+              <code className="text-gray-400">annual/</code>) when enough anchors exist; otherwise the last
+              weekly snapshot per calendar year. Otherwise averages from loaded dailies. Hover shows km².
+            </>
+          ) : (
+            <>
+              Yearly changes prefer yearly repo deltas, else year-over-year from last weekly anchor per year,
+              else summed daily changes by calendar year.
+            </>
+          )}
         </p>
       )}
       <TerritoryChart
