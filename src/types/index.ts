@@ -87,7 +87,7 @@ export interface DailyTerritoryData {
 export type ViewLevel = 'total' | 'oblast';
 
 // Time range for charts
-export type TimeRange = 'daily' | 'weekly' | 'monthly';
+export type TimeRange = 'daily' | 'weekly' | 'yearly';
 
 // Metric display props - updated for 3-way control display
 export interface MetricCardProps {

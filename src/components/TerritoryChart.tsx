@@ -17,7 +17,7 @@ import {
   calculateControlData,
   calculateDailyChangeData,
   aggregateWeekly,
-  aggregateMonthly,
+  aggregateYearly,
   aggregatedToControlChartPoints,
   calculateWeeklyRepoControlChartData,
   calculateWeeklyRepoChangeChartData,
@@ -64,7 +64,7 @@ export function TerritoryChart({
       }
       return agg;
     }
-    const agg = aggregateMonthly(dailyData);
+    const agg = aggregateYearly(dailyData);
     if (chartType === 'control') {
       return aggregatedToControlChartPoints(agg);
     }
@@ -75,7 +75,7 @@ export function TerritoryChart({
 
   const changeUsesAggregatedBars =
     chartType === 'change' &&
-    (timeRange === 'monthly' || (timeRange === 'weekly' && !useRepoWeekly));
+    (timeRange === 'yearly' || (timeRange === 'weekly' && !useRepoWeekly));
 
   // Number formatter for chart values
   const formatNumber = (v: number) => {

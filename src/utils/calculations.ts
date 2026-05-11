@@ -176,7 +176,8 @@ export function calculateWeeklyRepoControlChartData(weekly: DailyTerritoryData[]
 export function aggregatedToControlChartPoints(agg: AggregatedData[]): ChartDataPoint[] {
   return agg.map((a) => {
     const isIsoWeek = /^\d{4}-W\d{2}$/.test(a.period);
-    const formattedDate = isIsoWeek ? a.period : formatPeriod(a.period, 'monthly');
+    const isYear = /^\d{4}$/.test(a.period);
+    const formattedDate = isIsoWeek ? a.period : formatPeriod(a.period, isYear ? 'yearly' : 'monthly');
     return {
       date: a.period,
       formattedDate,
@@ -324,6 +325,58 @@ export function aggregateMonthly(data: DailyTerritoryData[]): AggregatedData[] {
   });
   
   return Array.from(monthly.entries()).map(([period, values]) => ({
+    period,
+    russianAvg: parseFloat((values.russianControlSum / values.days).toFixed(1)),
+    ukrainianAvg: parseFloat((values.ukrainianControlSum / values.days).toFixed(1)),
+    disputedAvg: parseFloat((values.disputedControlSum / values.days).toFixed(1)),
+    russianChangeSum: parseFloat(values.russianChangeSum.toFixed(1)),
+    ukrainianChangeSum: parseFloat(values.ukrainianChangeSum.toFixed(1)),
+    disputedChangeSum: parseFloat(values.disputedChangeSum.toFixed(1)),
+    daysCount: values.days,
+  }));
+}
+
+/**
+ * Aggregates daily data into yearly averages and change sums
+ */
+export function aggregateYearly(data: DailyTerritoryData[]): AggregatedData[] {
+  const yearly: Map<string, {
+    russianControlSum: number;
+    ukrainianControlSum: number;
+    disputedControlSum: number;
+    totalAreaSum: number;
+    russianChangeSum: number;
+    ukrainianChangeSum: number;
+    disputedChangeSum: number;
+    days: number;
+  }> = new Map();
+
+  data.forEach((day, index) => {
+    const key = day.date.substring(0, 4); // YYYY
+    const { russianChange, ukrainianChange, disputedChange } = getDerivedTotalChanges(data, index);
+
+    const existing = yearly.get(key) || {
+      russianControlSum: 0, ukrainianControlSum: 0, disputedControlSum: 0, totalAreaSum: 0,
+      russianChangeSum: 0, ukrainianChangeSum: 0, disputedChangeSum: 0,
+      days: 0,
+    };
+
+    // Ukrainian controlled = total - russian - disputed (includes uncontested)
+    const ukrainianControlled = day.total_area_km2 - day.total_russian_controlled_km2 - day.total_disputed_km2;
+
+    yearly.set(key, {
+      russianControlSum: existing.russianControlSum + day.total_russian_controlled_km2,
+      ukrainianControlSum: existing.ukrainianControlSum + ukrainianControlled,
+      disputedControlSum: existing.disputedControlSum + day.total_disputed_km2,
+      totalAreaSum: existing.totalAreaSum + day.total_area_km2,
+      russianChangeSum: existing.russianChangeSum + russianChange,
+      ukrainianChangeSum: existing.ukrainianChangeSum + ukrainianChange,
+      disputedChangeSum: existing.disputedChangeSum + disputedChange,
+      days: existing.days + 1,
+    });
+  });
+
+  return Array.from(yearly.entries()).map(([period, values]) => ({
     period,
     russianAvg: parseFloat((values.russianControlSum / values.days).toFixed(1)),
     ukrainianAvg: parseFloat((values.ukrainianControlSum / values.days).toFixed(1)),
@@ -1749,9 +1802,12 @@ export function formatDate(dateStr: string): string {
 /**
  * Formats period string for display
  */
-export function formatPeriod(period: string, range: TimeRange): string {
+export function formatPeriod(period: string, range: TimeRange | 'monthly'): string {
   if (range === 'weekly') {
     return period; // Already formatted as YYYY-W##
+  }
+  if (range === 'yearly') {
+    return period;
   }
   if (range === 'monthly') {
     const [year, month] = period.split('-');

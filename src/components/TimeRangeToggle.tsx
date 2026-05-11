@@ -1,7 +1,7 @@
 import type { TimeRange } from '@/types';
 
 /**
- * TimeRangeToggle - Toggle between daily, weekly, and monthly views
+ * TimeRangeToggle - Toggle between daily, weekly, and yearly views
  */
 interface TimeRangeToggleProps {
   value: TimeRange;
@@ -12,7 +12,7 @@ export function TimeRangeToggle({ value, onChange }: TimeRangeToggleProps) {
   const ranges: { key: TimeRange; label: string }[] = [
     { key: 'daily', label: 'Daily' },
     { key: 'weekly', label: 'Weekly' },
-    { key: 'monthly', label: 'Monthly' },
+    { key: 'yearly', label: 'Yearly' },
   ];
 
   return (
