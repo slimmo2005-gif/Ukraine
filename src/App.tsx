@@ -1291,12 +1291,16 @@ function App() {
             <ChartSection
               dailyData={dataUpToSelected}
               weeklySnapshotData={weeklySnapshotData}
+              yearlySnapshotData={yearlySnapshotData}
+              selectedDate={selectedDate || latestAvailableDate}
               title="Territory Control Over Time"
               chartType="control"
             />
             <ChartSection
               dailyData={dataUpToSelected}
               weeklySnapshotData={weeklySnapshotData}
+              yearlySnapshotData={yearlySnapshotData}
+              selectedDate={selectedDate || latestAvailableDate}
               title="Daily Changes"
               chartType="change"
             />

@@ -172,6 +172,101 @@ export function calculateWeeklyRepoControlChartData(weekly: DailyTerritoryData[]
   }));
 }
 
+/** Control levels from `data/history/yearly` (or annual/) anchors; X-axis label is calendar year. */
+export function calculateYearlyRepoControlChartData(yearly: DailyTerritoryData[]): ChartDataPoint[] {
+  const sorted = [...yearly].sort((a, b) => a.date.localeCompare(b.date));
+  const base = calculateControlData(sorted);
+  return base.map((point, i) => ({
+    ...point,
+    formattedDate: sorted[i].date.slice(0, 4),
+    snapshotMeta: describeWeeklyRowProvenance(sorted[i]),
+  }));
+}
+
+/**
+ * YoY-style change series from yearly repo JSON (uses row *_change_km2 like weekly repo).
+ */
+export function calculateYearlyRepoChangeChartData(yearly: DailyTerritoryData[]): ChartDataPoint[] {
+  const sorted = [...yearly].sort((a, b) => a.date.localeCompare(b.date));
+  return sorted.map((day) => {
+    const ukrainianControlled =
+      day.total_area_km2 - day.total_russian_controlled_km2 - day.total_disputed_km2;
+    return {
+      date: day.date,
+      formattedDate: day.date.slice(0, 4),
+      russianControlled: day.total_russian_controlled_km2,
+      ukrainianControlled,
+      disputed: day.total_disputed_km2,
+      russianChange: day.russian_change_km2 ?? 0,
+      ukrainianChange: day.ukrainian_change_km2 ?? 0,
+      disputedChange: day.disputed_change_km2 ?? 0,
+      snapshotMeta: describeWeeklyRowProvenance(day),
+    };
+  });
+}
+
+/**
+ * One point per calendar year: last weekly anchor on or before `selectedDate` in that year.
+ * Matches net-movement / summary YoY when yearly JSON is absent.
+ */
+export function calculateYearlyFromWeeklyYearEndControlChartData(
+  weeklySnapshots: DailyTerritoryData[],
+  selectedDate: string,
+): ChartDataPoint[] {
+  const rows = getLastWeeklyAnchorPerYear(weeklySnapshots, selectedDate);
+  return rows.map(({ year, anchor: day }) => {
+    const ukrainianControlled =
+      day.total_area_km2 - day.total_russian_controlled_km2 - day.total_disputed_km2;
+    return {
+      date: day.date,
+      formattedDate: String(year),
+      russianControlled: day.total_russian_controlled_km2,
+      ukrainianControlled,
+      disputed: day.total_disputed_km2,
+      russianChange: 0,
+      ukrainianChange: 0,
+      disputedChange: 0,
+      snapshotMeta: `Last weekly anchor in ${year} (${day.date})`,
+    };
+  });
+}
+
+/** Year-over-year deltas between consecutive year-end weekly anchors (first year: 0 change). */
+export function calculateYearlyFromWeeklyYearEndChangeChartData(
+  weeklySnapshots: DailyTerritoryData[],
+  selectedDate: string,
+): ChartDataPoint[] {
+  const rows = getLastWeeklyAnchorPerYear(weeklySnapshots, selectedDate);
+  return rows.map(({ year, anchor: day }, i) => {
+    const ukrainianControlled =
+      day.total_area_km2 - day.total_russian_controlled_km2 - day.total_disputed_km2;
+    let russianChange = 0;
+    let ukrainianChange = 0;
+    let disputedChange = 0;
+    let snapshotMeta: string | undefined;
+    if (i > 0) {
+      const prev = rows[i - 1].anchor;
+      const prevU =
+        prev.total_area_km2 - prev.total_russian_controlled_km2 - prev.total_disputed_km2;
+      russianChange = day.total_russian_controlled_km2 - prev.total_russian_controlled_km2;
+      ukrainianChange = ukrainianControlled - prevU;
+      disputedChange = day.total_disputed_km2 - prev.total_disputed_km2;
+      snapshotMeta = `YoY vs prior year-end anchor (${prev.date})`;
+    }
+    return {
+      date: day.date,
+      formattedDate: String(year),
+      russianControlled: day.total_russian_controlled_km2,
+      ukrainianControlled,
+      disputed: day.total_disputed_km2,
+      russianChange,
+      ukrainianChange,
+      disputedChange,
+      snapshotMeta,
+    };
+  });
+}
+
 /** Map aggregated periods to control chart points (Area chart expects russianControlled, not russianAvg). */
 export function aggregatedToControlChartPoints(agg: AggregatedData[]): ChartDataPoint[] {
   return agg.map((a) => {
@@ -376,16 +471,18 @@ export function aggregateYearly(data: DailyTerritoryData[]): AggregatedData[] {
     });
   });
 
-  return Array.from(yearly.entries()).map(([period, values]) => ({
-    period,
-    russianAvg: parseFloat((values.russianControlSum / values.days).toFixed(1)),
-    ukrainianAvg: parseFloat((values.ukrainianControlSum / values.days).toFixed(1)),
-    disputedAvg: parseFloat((values.disputedControlSum / values.days).toFixed(1)),
-    russianChangeSum: parseFloat(values.russianChangeSum.toFixed(1)),
-    ukrainianChangeSum: parseFloat(values.ukrainianChangeSum.toFixed(1)),
-    disputedChangeSum: parseFloat(values.disputedChangeSum.toFixed(1)),
-    daysCount: values.days,
-  }));
+  return Array.from(yearly.entries())
+    .map(([period, values]) => ({
+      period,
+      russianAvg: parseFloat((values.russianControlSum / values.days).toFixed(1)),
+      ukrainianAvg: parseFloat((values.ukrainianControlSum / values.days).toFixed(1)),
+      disputedAvg: parseFloat((values.disputedControlSum / values.days).toFixed(1)),
+      russianChangeSum: parseFloat(values.russianChangeSum.toFixed(1)),
+      ukrainianChangeSum: parseFloat(values.ukrainianChangeSum.toFixed(1)),
+      disputedChangeSum: parseFloat(values.disputedChangeSum.toFixed(1)),
+      daysCount: values.days,
+    }))
+    .sort((a, b) => a.period.localeCompare(b.period));
 }
 
 /**

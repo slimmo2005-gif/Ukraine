@@ -11,6 +11,8 @@ import { TerritoryChart } from './TerritoryChart';
 interface ChartSectionProps {
   dailyData: DailyTerritoryData[];
   weeklySnapshotData: DailyTerritoryData[];
+  yearlySnapshotData: DailyTerritoryData[];
+  selectedDate: string;
   title: string;
   chartType: 'control' | 'change';
 }
@@ -18,6 +20,8 @@ interface ChartSectionProps {
 export function ChartSection({
   dailyData,
   weeklySnapshotData,
+  yearlySnapshotData,
+  selectedDate,
   title,
   chartType,
 }: ChartSectionProps) {
@@ -52,9 +56,20 @@ export function ChartSection({
           )}
         </p>
       )}
+      {timeRange === 'yearly' && (
+        <p className="text-xs text-gray-500 mb-4 leading-snug">
+          Yearly view prefers <code className="text-gray-400">data/history/yearly</code> (or{' '}
+          <code className="text-gray-400">annual/</code>) when at least two anchors exist; otherwise one point
+          per calendar year from the <strong>last weekly</strong> snapshot on or before your selected date
+          (aligned with Summary YoY). If neither is available, it falls back to averages from loaded daily
+          snapshots only (often a short window).
+        </p>
+      )}
       <TerritoryChart
         dailyData={dailyData}
         weeklySnapshotData={weeklySnapshotData}
+        yearlySnapshotData={yearlySnapshotData}
+        selectedDate={selectedDate}
         timeRange={timeRange}
         chartType={chartType}
       />

@@ -21,6 +21,10 @@ import {
   aggregatedToControlChartPoints,
   calculateWeeklyRepoControlChartData,
   calculateWeeklyRepoChangeChartData,
+  calculateYearlyRepoControlChartData,
+  calculateYearlyRepoChangeChartData,
+  calculateYearlyFromWeeklyYearEndControlChartData,
+  calculateYearlyFromWeeklyYearEndChangeChartData,
 } from '@/utils/calculations';
 
 /**
@@ -33,6 +37,10 @@ interface TerritoryChartProps {
   dailyData: DailyTerritoryData[];
   /** All `data/history/weekly/*.json` rows, sorted by date ascending (may be empty). */
   weeklySnapshotData: DailyTerritoryData[];
+  /** `data/history/yearly` or `annual/` rows when present (may be empty). */
+  yearlySnapshotData: DailyTerritoryData[];
+  /** Navigator date; yearly series is clipped to anchors on or before this (ISO YYYY-MM-DD). */
+  selectedDate: string;
   timeRange: TimeRange;
   chartType: 'control' | 'change';
 }
@@ -40,10 +48,39 @@ interface TerritoryChartProps {
 export function TerritoryChart({
   dailyData,
   weeklySnapshotData,
+  yearlySnapshotData,
+  selectedDate,
   timeRange,
   chartType,
 }: TerritoryChartProps) {
   const useRepoWeekly = weeklySnapshotData.length > 0;
+
+  const chartCutoffDate =
+    (selectedDate && selectedDate.trim()) ||
+    (dailyData.length > 0 ? dailyData[dailyData.length - 1].date : '') ||
+    (weeklySnapshotData.length > 0
+      ? weeklySnapshotData[weeklySnapshotData.length - 1].date
+      : '') ||
+    '9999-12-31';
+
+  const yearlySnapshotsUpToDate = [...yearlySnapshotData]
+    .filter((y) => y.date <= chartCutoffDate)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const yearlyFromWeeklyControl = calculateYearlyFromWeeklyYearEndControlChartData(
+    weeklySnapshotData,
+    chartCutoffDate,
+  );
+  const yearlyFromWeeklyChange = calculateYearlyFromWeeklyYearEndChangeChartData(
+    weeklySnapshotData,
+    chartCutoffDate,
+  );
+
+  const yearlyChangeUsesAggregatedBars =
+    timeRange === 'yearly' &&
+    chartType === 'change' &&
+    yearlySnapshotsUpToDate.length < 2 &&
+    yearlyFromWeeklyChange.length < 2;
 
   const getChartData = (): (ChartDataPoint | AggregatedData)[] => {
     if (timeRange === 'daily') {
@@ -64,18 +101,29 @@ export function TerritoryChart({
       }
       return agg;
     }
-    const agg = aggregateYearly(dailyData);
     if (chartType === 'control') {
-      return aggregatedToControlChartPoints(agg);
+      if (yearlySnapshotsUpToDate.length >= 2) {
+        return calculateYearlyRepoControlChartData(yearlySnapshotsUpToDate);
+      }
+      if (yearlyFromWeeklyControl.length >= 2) {
+        return yearlyFromWeeklyControl;
+      }
+      return aggregatedToControlChartPoints(aggregateYearly(dailyData));
     }
-    return agg;
+    if (yearlySnapshotsUpToDate.length >= 2) {
+      return calculateYearlyRepoChangeChartData(yearlySnapshotsUpToDate);
+    }
+    if (yearlyFromWeeklyChange.length >= 2) {
+      return yearlyFromWeeklyChange;
+    }
+    return aggregateYearly(dailyData);
   };
 
   const chartData = getChartData();
 
   const changeUsesAggregatedBars =
     chartType === 'change' &&
-    (timeRange === 'yearly' || (timeRange === 'weekly' && !useRepoWeekly));
+    (yearlyChangeUsesAggregatedBars || (timeRange === 'weekly' && !useRepoWeekly));
 
   // Number formatter for chart values
   const formatNumber = (v: number) => {
@@ -140,6 +188,7 @@ export function TerritoryChart({
             stroke="#6b7280"
             fontSize={12}
             tick={{ fill: '#6b7280' }}
+            interval={timeRange === 'yearly' ? 'preserveStartEnd' : undefined}
           />
           <YAxis 
             stroke="#6b7280" 
@@ -230,7 +279,7 @@ export function TerritoryChart({
             fontSize={12}
             tick={{ fill: '#6b7280' }}
             interval="preserveStartEnd"
-            minTickGap={timeRange === 'weekly' ? 8 : 30}
+            minTickGap={timeRange === 'weekly' || timeRange === 'yearly' ? 8 : 30}
           />
           <YAxis
             stroke="#6b7280"
@@ -249,7 +298,7 @@ export function TerritoryChart({
             name="Russian Change"
             stroke="#ef4444"
             strokeWidth={2}
-            dot={timeRange === 'weekly'}
+            dot={timeRange === 'weekly' || (timeRange === 'yearly' && !yearlyChangeUsesAggregatedBars)}
             activeDot={{ r: 6, fill: '#ef4444' }}
           />
           <Line
@@ -258,7 +307,7 @@ export function TerritoryChart({
             name="Ukrainian Change"
             stroke="#3b82f6"
             strokeWidth={2}
-            dot={timeRange === 'weekly'}
+            dot={timeRange === 'weekly' || (timeRange === 'yearly' && !yearlyChangeUsesAggregatedBars)}
             activeDot={{ r: 6, fill: '#3b82f6' }}
           />
           <Line
@@ -267,7 +316,7 @@ export function TerritoryChart({
             name="Disputed Change"
             stroke="#f59e0b"
             strokeWidth={2}
-            dot={timeRange === 'weekly'}
+            dot={timeRange === 'weekly' || (timeRange === 'yearly' && !yearlyChangeUsesAggregatedBars)}
             activeDot={{ r: 6, fill: '#f59e0b' }}
           />
         </LineChart>
