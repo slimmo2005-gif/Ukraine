@@ -23,6 +23,16 @@ import {
   calculateYearlyFromWeeklyYearEndChangeChartData,
 } from '@/utils/calculations';
 
+/** Most recent month buckets shown in monthly chart mode */
+const MONTHLY_CHART_PERIOD_COUNT = 12;
+
+function takeLastN<T>(rows: T[], n: number): T[] {
+  if (rows.length <= n) {
+    return rows;
+  }
+  return rows.slice(-n);
+}
+
 type StackedControlBarPoint = ChartDataPoint & {
   russianPct: number;
   ukrainianPct: number;
@@ -53,18 +63,21 @@ function buildStackedPercentPoints(points: ChartDataPoint[]): StackedControlBarP
 
 const PCT_LABEL_MIN = 1.2;
 
-function formatPctLabel(value: number | undefined): string {
+function formatPctLabel(value: number | undefined, fractionDigits: 1 | 2): string {
   if (value === undefined || Number.isNaN(value) || value < PCT_LABEL_MIN) {
     return '';
   }
-  return `${value.toFixed(1)}%`;
+  return `${value.toFixed(fractionDigits)}%`;
 }
 
-function formatKm2(v: number): string {
+function formatKm2(v: number, fractionDigits: 1 | 2 = 1): string {
   if (Math.abs(v) >= 1000) {
-    return Math.round(v).toLocaleString();
+    return v.toLocaleString(undefined, {
+      maximumFractionDigits: fractionDigits,
+      minimumFractionDigits: 0,
+    });
   }
-  return v.toFixed(1);
+  return v.toFixed(fractionDigits);
 }
 
 /**
@@ -121,12 +134,18 @@ export function TerritoryChart({
     yearlySnapshotsUpToDate.length < 2 &&
     yearlyFromWeeklyChange.length < 2;
 
+  const pctFractionDigits: 1 | 2 = timeRange === 'monthly' ? 2 : 1;
+  const kmFractionDigits: 1 | 2 = timeRange === 'monthly' ? 2 : 1;
+
   const chartData = useMemo((): (ChartDataPoint | AggregatedData)[] => {
     if (timeRange === 'monthly') {
       if (chartType === 'control') {
-        return aggregatedToControlChartPoints(aggregateMonthly(dailyData));
+        return takeLastN(
+          aggregatedToControlChartPoints(aggregateMonthly(dailyData)),
+          MONTHLY_CHART_PERIOD_COUNT,
+        );
       }
-      return aggregateMonthly(dailyData);
+      return takeLastN(aggregateMonthly(dailyData), MONTHLY_CHART_PERIOD_COUNT);
     }
 
     if (chartType === 'control') {
@@ -201,7 +220,7 @@ export function TerritoryChart({
           const pct = entry.value;
           return (
             <p key={idx} className="text-sm" style={{ color: entry.color }}>
-              {entry.name}: {pct.toFixed(1)}% ({formatKm2(km)} km²)
+              {entry.name}: {pct.toFixed(pctFractionDigits)}% ({formatKm2(km, kmFractionDigits)} km²)
             </p>
           );
         })}
@@ -226,7 +245,7 @@ export function TerritoryChart({
           <p className="text-gray-300 font-medium mb-2">{label}</p>
           {payload.map((entry, idx) => (
             <p key={idx} className="text-sm" style={{ color: entry.color }}>
-              {entry.name}: {formatKm2(entry.value)} km²
+              {entry.name}: {formatKm2(entry.value, kmFractionDigits)} km²
             </p>
           ))}
           {meta ? (
@@ -265,7 +284,9 @@ export function TerritoryChart({
             fontSize={12}
             tick={{ fill: '#6b7280' }}
             domain={[0, 100]}
-            tickFormatter={(v) => `${v}%`}
+            tickFormatter={(v) =>
+              timeRange === 'monthly' ? `${Number(v).toFixed(1)}%` : `${v}%`
+            }
             label={{ value: '% of Ukraine', angle: -90, position: 'insideLeft', fill: '#6b7280' }}
           />
           <Tooltip content={<ControlPercentTooltip />} />
@@ -274,13 +295,31 @@ export function TerritoryChart({
             formatter={(value) => <span className="text-gray-300">{value}</span>}
           />
           <Bar dataKey="russianPct" name="Russian Controlled" stackId="a" fill="#ef4444" radius={[0, 0, 6, 6]}>
-            <LabelList dataKey="russianPct" position="center" fill="#fecaca" formatter={formatPctLabel} fontSize={11} />
+            <LabelList
+              dataKey="russianPct"
+              position="center"
+              fill="#fecaca"
+              formatter={(v: number) => formatPctLabel(v, pctFractionDigits)}
+              fontSize={11}
+            />
           </Bar>
           <Bar dataKey="ukrainianPct" name="Ukrainian Controlled" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]}>
-            <LabelList dataKey="ukrainianPct" position="center" fill="#bfdbfe" formatter={formatPctLabel} fontSize={11} />
+            <LabelList
+              dataKey="ukrainianPct"
+              position="center"
+              fill="#bfdbfe"
+              formatter={(v: number) => formatPctLabel(v, pctFractionDigits)}
+              fontSize={11}
+            />
           </Bar>
           <Bar dataKey="disputedPct" name="Disputed" stackId="a" fill="#f59e0b" radius={[6, 6, 0, 0]}>
-            <LabelList dataKey="disputedPct" position="center" fill="#451a03" formatter={formatPctLabel} fontSize={11} />
+            <LabelList
+              dataKey="disputedPct"
+              position="center"
+              fill="#451a03"
+              formatter={(v: number) => formatPctLabel(v, pctFractionDigits)}
+              fontSize={11}
+            />
           </Bar>
         </BarChart>
       </ResponsiveContainer>

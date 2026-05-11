@@ -44,12 +44,14 @@ export function ChartSection({
         <p className="text-xs text-gray-500 mb-4 leading-snug">
           {chartType === 'control' ? (
             <>
-              Bars show each category as a <strong>percentage of total Ukraine area</strong> for that month
-              (from daily snapshots up to your selected date). Labels are %; hover shows km².
+              Bars show the <strong>last 12 calendar months</strong> on or before your selected date, each as a
+              percentage of total Ukraine area (from daily snapshots). Labels use an extra decimal in monthly
+              view; hover shows km² with the same precision.
             </>
           ) : (
             <>
-              Monthly bars sum daily net changes within each calendar month from loaded daily snapshots.
+              Monthly bars show the <strong>last 12 calendar months</strong> of summed daily net changes from
+              loaded daily snapshots (extra decimal in values when shown).
             </>
           )}
         </p>
