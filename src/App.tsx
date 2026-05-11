@@ -32,6 +32,10 @@ import {
   type NetMovementDeltaMode,
 } from '@/utils/calculations';
 import type { DataSource, ViewLevel, OblastKey, DailyTerritoryData } from '@/types';
+import { mapPool } from '@/utils/parallelFetch';
+
+/** Parallel raw JSON fetches; bounded to avoid browser connection limits and GitHub throttling. */
+const DATA_FETCH_CONCURRENCY = 12;
 
 /**
  * Fetch territory data from GitHub repository
@@ -75,7 +79,7 @@ function toDateKey(value: string): string {
 
 async function fetchDataFromUrl(url: string, dateKeyForLog: string): Promise<DailyTerritoryData | null> {
   try {
-    const response = await fetch(url, { cache: 'no-store' });
+    const response = await fetch(url, { cache: 'default' });
     if (!response.ok) {
       if (response.status === 404) {
         return null;
@@ -99,7 +103,7 @@ async function discoverJsonDateKeysInDirectory(directory: string): Promise<Direc
   for (const branch of DATA_REPO_BRANCHES) {
     try {
       const response = await fetch(`${DATA_REPO_API_BASE_URL}/${directory}?ref=${branch}`, {
-        cache: 'no-store',
+        cache: 'default',
       });
       if (!response.ok) {
         continue;
@@ -126,8 +130,14 @@ async function discoverJsonDateKeysInDirectory(directory: string): Promise<Direc
 async function discoverDateSources(): Promise<DateKeySources> {
   const dateToUrls: DateKeySources = new Map();
 
-  for (const directory of DATA_DIRECTORIES) {
-    const listing = await discoverJsonDateKeysInDirectory(directory);
+  const listings = await Promise.all(
+    DATA_DIRECTORIES.map(async (directory) => ({
+      directory,
+      listing: await discoverJsonDateKeysInDirectory(directory),
+    })),
+  );
+
+  for (const { directory, listing } of listings) {
     if (!listing) {
       continue;
     }
@@ -150,15 +160,11 @@ async function fetchWeeklySnapshotSeries(): Promise<DailyTerritoryData[]> {
     return [];
   }
   const { dateKeys, branch } = listing;
-  const out: DailyTerritoryData[] = [];
-  for (const dateKey of dateKeys) {
+  const rows = await mapPool(dateKeys, DATA_FETCH_CONCURRENCY, async (dateKey) => {
     const url = `${DATA_REPO_RAW_BASE_URL}/${branch}/${DATA_WEEKLY_DIRECTORY}/${dateKey}.json`;
-    const row = await fetchDataFromUrl(url, dateKey);
-    if (row) {
-      out.push(row);
-    }
-  }
-  return out;
+    return fetchDataFromUrl(url, dateKey);
+  });
+  return rows.filter((row): row is DailyTerritoryData => row !== null);
 }
 
 /** Yearly anchors under data/history/yearly or annual/, ascending by date key (when present). */
@@ -169,14 +175,11 @@ async function fetchYearlySnapshotSeries(): Promise<DailyTerritoryData[]> {
       continue;
     }
     const { dateKeys, branch } = listing;
-    const out: DailyTerritoryData[] = [];
-    for (const dateKey of dateKeys) {
+    const rows = await mapPool(dateKeys, DATA_FETCH_CONCURRENCY, async (dateKey) => {
       const url = `${DATA_REPO_RAW_BASE_URL}/${branch}/${directory}/${dateKey}.json`;
-      const row = await fetchDataFromUrl(url, dateKey);
-      if (row) {
-        out.push(row);
-      }
-    }
+      return fetchDataFromUrl(url, dateKey);
+    });
+    const out = rows.filter((row): row is DailyTerritoryData => row !== null);
     if (out.length > 0) {
       return out;
     }
@@ -204,27 +207,25 @@ async function fetchDateRange(startDate: Date, endDate: Date): Promise<DailyTerr
       }
       current.setDate(current.getDate() + 1);
     }
-    const data: DailyTerritoryData[] = [];
-    for (const { dateKey, url } of fallback) {
-      const dayData = await fetchDataFromUrl(url, dateKey);
-      if (dayData) data.push(dayData);
-    }
-    return data;
+    const rows = await mapPool(fallback, DATA_FETCH_CONCURRENCY, ({ dateKey, url }) =>
+      fetchDataFromUrl(url, dateKey),
+    );
+    return rows.filter((row): row is DailyTerritoryData => row !== null);
   }
 
-  const data: DailyTerritoryData[] = [];
-  for (const dateKey of dateKeys) {
+  async function fetchFirstForDateKey(dateKey: string): Promise<DailyTerritoryData | null> {
     const urls = dateSources.get(dateKey) || [];
     for (const url of urls) {
       const dayData = await fetchDataFromUrl(url, dateKey);
       if (dayData) {
-        data.push(dayData);
-        break;
+        return dayData;
       }
     }
+    return null;
   }
 
-  return data;
+  const rows = await mapPool(dateKeys, DATA_FETCH_CONCURRENCY, (dateKey) => fetchFirstForDateKey(dateKey));
+  return rows.filter((row): row is DailyTerritoryData => row !== null);
 }
 
 function getDateDaysAgo(days: number): Date {
