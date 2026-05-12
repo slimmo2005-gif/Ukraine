@@ -1297,6 +1297,7 @@ function App() {
             />
             <MonthlyComparisonChart
               fullDailyData={currentData}
+              weeklySnapshotData={weeklySnapshotData}
               selectedDate={selectedDate || latestAvailableDate}
             />
           </div>

@@ -23,16 +23,19 @@ function formatKm2(v: number): string {
 }
 
 interface MonthlyComparisonChartProps {
-  /** Full loaded daily series (ascending), not clipped to selected date — older months needed for YoY. */
   fullDailyData: DailyTerritoryData[];
-  /** Month window ends on this date’s calendar month (inclusive). */
+  weeklySnapshotData: DailyTerritoryData[];
   selectedDate: string;
 }
 
 const WINDOW_OPTIONS = [6, 12, 18, 24] as const;
 const YEAR_OFFSET_OPTIONS = [1, 2, 3, 4] as const;
 
-export function MonthlyComparisonChart({ fullDailyData, selectedDate }: MonthlyComparisonChartProps) {
+export function MonthlyComparisonChart({
+  fullDailyData,
+  weeklySnapshotData,
+  selectedDate,
+}: MonthlyComparisonChartProps) {
   const [metric, setMetric] = useState<MonthlyComparisonMetric>('russian_gain');
   const [windowMonths, setWindowMonths] = useState<number>(12);
   const [comparePrimaryYearsAgo, setComparePrimaryYearsAgo] = useState<number>(1);
@@ -45,9 +48,11 @@ export function MonthlyComparisonChart({ fullDailyData, selectedDate }: MonthlyC
         comparePrimaryYearsAgo,
         compareSecondaryYearsAgo: compareSecondaryYearsAgo > 0 ? compareSecondaryYearsAgo : null,
         metric,
+        weeklySnapshots: weeklySnapshotData,
       }),
     [
       fullDailyData,
+      weeklySnapshotData,
       selectedDate,
       windowMonths,
       comparePrimaryYearsAgo,
@@ -145,7 +150,7 @@ export function MonthlyComparisonChart({ fullDailyData, selectedDate }: MonthlyC
             <select
               value={windowMonths}
               onChange={(e) => setWindowMonths(Number(e.target.value))}
-              className="bg-osint-bg border border-osint-border rounded-md px-2 py-1.5 text-white"
+              className="monthly-comparison-select w-full rounded-md border border-slate-500 bg-slate-900 px-2 py-2 text-sm text-slate-100 shadow-sm focus:border-ukraine-blue focus:outline-none focus:ring-1 focus:ring-ukraine-blue"
             >
               {WINDOW_OPTIONS.map((w) => (
                 <option key={w} value={w}>
@@ -165,7 +170,7 @@ export function MonthlyComparisonChart({ fullDailyData, selectedDate }: MonthlyC
                   setCompareSecondaryYearsAgo(0);
                 }
               }}
-              className="bg-osint-bg border border-osint-border rounded-md px-2 py-1.5 text-white"
+              className="monthly-comparison-select w-full rounded-md border border-slate-500 bg-slate-900 px-2 py-2 text-sm text-slate-100 shadow-sm focus:border-ukraine-blue focus:outline-none focus:ring-1 focus:ring-ukraine-blue"
             >
               {YEAR_OFFSET_OPTIONS.map((y) => (
                 <option key={y} value={y}>
@@ -179,7 +184,7 @@ export function MonthlyComparisonChart({ fullDailyData, selectedDate }: MonthlyC
             <select
               value={compareSecondaryYearsAgo}
               onChange={(e) => setCompareSecondaryYearsAgo(Number(e.target.value))}
-              className="bg-osint-bg border border-osint-border rounded-md px-2 py-1.5 text-white"
+              className="monthly-comparison-select w-full rounded-md border border-slate-500 bg-slate-900 px-2 py-2 text-sm text-slate-100 shadow-sm focus:border-ukraine-blue focus:outline-none focus:ring-1 focus:ring-ukraine-blue"
             >
               <option value={0}>None</option>
               {YEAR_OFFSET_OPTIONS.filter((y) => y !== comparePrimaryYearsAgo).map((y) => (
@@ -190,8 +195,9 @@ export function MonthlyComparisonChart({ fullDailyData, selectedDate }: MonthlyC
             </select>
           </label>
           <p className="text-xs text-gray-500 leading-snug self-end">
-            Main window ends on the <strong>selected date month</strong> (inclusive). Older comparison months
-            need daily files in history — load depth is limited by the app fetch window.
+            Months without daily files use <strong>weekly history interpolation</strong> at month start/end when
+            at least two weekly anchors exist. Main window ends on the <strong>selected date month</strong>{' '}
+            (inclusive).
           </p>
         </div>
       </div>

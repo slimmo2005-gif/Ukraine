@@ -573,6 +573,53 @@ function shiftMonthByYears(ym: string, yearsAgo: number): string {
   return `${y - yearsAgo}-${String(mo).padStart(2, '0')}`;
 }
 
+function parseYearMonthKey(ym: string): { year: number; month: number } | null {
+  const m = ym.match(/^(\d{4})-(\d{2})$/);
+  if (!m) {
+    return null;
+  }
+  const year = parseInt(m[1], 10);
+  const month = parseInt(m[2], 10);
+  if (!year || month < 1 || month > 12) {
+    return null;
+  }
+  return { year, month };
+}
+
+/** Prefer daily aggregate for the month; else national delta from weekly interpolation at month bounds. */
+function resolveNationalMonthDeltas(
+  monthKey: string,
+  byPeriod: Map<string, AggregatedData>,
+  weeklySortedAsc: DailyTerritoryData[],
+  selectedDate: string,
+): { russian: number; ukrainianSum: number } | null {
+  const agg = byPeriod.get(monthKey);
+  if (agg && agg.daysCount > 0) {
+    return { russian: agg.russianChangeSum, ukrainianSum: agg.ukrainianChangeSum };
+  }
+  if (weeklySortedAsc.length < 2) {
+    return null;
+  }
+  const ym = parseYearMonthKey(monthKey);
+  if (!ym) {
+    return null;
+  }
+  const selYm = selectedDate.length >= 7 ? selectedDate.slice(0, 7) : '';
+  const monthEnd = lastDayKeyOfMonth(ym.year, ym.month);
+  const clamp =
+    monthKey === selYm &&
+    selectedDate.length >= 10 &&
+    selectedDate >= `${monthKey}-01` &&
+    selectedDate < monthEnd
+      ? selectedDate
+      : undefined;
+  const w = tryMonthNetFromWeekly(weeklySortedAsc, ym.year, ym.month, undefined, clamp);
+  if (!w) {
+    return null;
+  }
+  return { russian: w.russianDeltaKm2, ukrainianSum: w.ukrainianDeltaKm2 };
+}
+
 /**
  * Month-by-month comparison: “main” window is the last `windowMonths` calendar months through
  * `selectedDate`’s month; each bar compares net change in that month to the same calendar month
@@ -586,32 +633,36 @@ export function buildMonthlyComparisonRows(
     comparePrimaryYearsAgo: number;
     compareSecondaryYearsAgo: number | null;
     metric: MonthlyComparisonMetric;
+    weeklySnapshots?: DailyTerritoryData[];
   },
 ): MonthlyComparisonRow[] {
   if (!selectedDate || fullDailySortedAsc.length === 0) {
     return [];
   }
 
-  const dataThrough = fullDailySortedAsc.filter((d) => d.date <= selectedDate);
+  const sortedDaily = [...fullDailySortedAsc].sort((a, b) => a.date.localeCompare(b.date));
+  const dataThrough = sortedDaily.filter((d) => d.date <= selectedDate);
   const monthlyAgg = aggregateMonthly(dataThrough);
   const byPeriod = new Map(monthlyAgg.map((a) => [a.period, a]));
+  const weeklySorted = [...(options.weeklySnapshots ?? [])].sort((a, b) => a.date.localeCompare(b.date));
 
   const keys = lastNCalendarMonthsThroughDate(selectedDate, options.windowMonths);
 
-  const pick = (a: AggregatedData | undefined) => {
-    if (!a) {
+  const pickFromResolved = (d: { russian: number; ukrainianSum: number } | null) => {
+    if (!d) {
       return null;
     }
-    return options.metric === 'russian_gain' ? a.russianChangeSum : -a.ukrainianChangeSum;
+    return options.metric === 'russian_gain' ? d.russian : -d.ukrainianSum;
   };
 
   return keys.map((monthKey) => {
-    const agg = byPeriod.get(monthKey);
-    const mainRaw = pick(agg);
+    const mainNet = resolveNationalMonthDeltas(monthKey, byPeriod, weeklySorted, selectedDate);
+    const mainRaw = pickFromResolved(mainNet);
     const main = mainRaw ?? 0;
 
     const k1 = shiftMonthByYears(monthKey, options.comparePrimaryYearsAgo);
-    const v1 = pick(byPeriod.get(k1));
+    const n1 = resolveNationalMonthDeltas(k1, byPeriod, weeklySorted, selectedDate);
+    const v1 = pickFromResolved(n1);
     const compare1Present = v1 !== null && v1 !== undefined && !Number.isNaN(v1);
     const compare1Value = compare1Present ? v1! : 0;
 
@@ -623,7 +674,8 @@ export function buildMonthlyComparisonRows(
       options.compareSecondaryYearsAgo !== options.comparePrimaryYearsAgo
     ) {
       const k2 = shiftMonthByYears(monthKey, options.compareSecondaryYearsAgo);
-      const v2 = pick(byPeriod.get(k2));
+      const n2 = resolveNationalMonthDeltas(k2, byPeriod, weeklySorted, selectedDate);
+      const v2 = pickFromResolved(n2);
       compare2Present = v2 !== null && v2 !== undefined && !Number.isNaN(v2);
       compare2Value = compare2Present ? v2! : 0;
     }
@@ -1264,6 +1316,8 @@ function tryMonthNetFromWeekly(
   year: number,
   month1: number,
   oblast?: OblastKey,
+  /** When set and before month end, end state uses this date (partial month vs selectedDate). */
+  endDateClamp?: string,
 ): {
   russianDeltaKm2: number;
   ukrainianDeltaKm2: number;
@@ -1276,7 +1330,13 @@ function tryMonthNetFromWeekly(
   }
   const sorted = [...weeklySortedAsc].sort((a, b) => a.date.localeCompare(b.date));
   const startKey = firstDayKeyOfMonth(year, month1);
-  const endKey = lastDayKeyOfMonth(year, month1);
+  const monthEndKey = lastDayKeyOfMonth(year, month1);
+  const endKey =
+    endDateClamp &&
+    endDateClamp >= startKey &&
+    endDateClamp < monthEndKey
+      ? endDateClamp
+      : monthEndKey;
   const startState = interpolateTerritoryAtDate(sorted, startKey);
   const endState = interpolateTerritoryAtDate(sorted, endKey);
   if (!startState || !endState) {
