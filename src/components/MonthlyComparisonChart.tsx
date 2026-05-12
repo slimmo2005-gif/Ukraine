@@ -110,6 +110,31 @@ export function MonthlyComparisonChart({
       ? `Same month, ${compareSecondaryYearsAgo} yr${compareSecondaryYearsAgo > 1 ? 's' : ''} ago (alt)`
       : '';
 
+  /** Recharts draws grouped bars in declaration order: older comparison (larger years back) left, main period right. */
+  const comparisonBars = useMemo(() => {
+    type DK = 'compare1Value' | 'compare2Value';
+    const entries: { dataKey: DK; name: string; yearsAgo: number }[] = [
+      { dataKey: 'compare1Value', name: primaryLabel, yearsAgo: comparePrimaryYearsAgo },
+    ];
+    if (compareSecondaryYearsAgo > 0 && compareSecondaryYearsAgo !== comparePrimaryYearsAgo) {
+      entries.push({
+        dataKey: 'compare2Value',
+        name: secondaryLegendName,
+        yearsAgo: compareSecondaryYearsAgo,
+      });
+    }
+    entries.sort((a, b) => b.yearsAgo - a.yearsAgo);
+    return entries.map((e, idx, arr) => ({
+      ...e,
+      fill: arr.length >= 2 && idx === 0 ? '#a855f7' : '#f97316',
+    }));
+  }, [
+    primaryLabel,
+    secondaryLegendName,
+    comparePrimaryYearsAgo,
+    compareSecondaryYearsAgo,
+  ]);
+
   const yLabel =
     metric === 'russian_gain' ? 'Russian Δ (km² / month)' : 'Ukrainian loss (−Δ UA km² / month)';
 
@@ -231,11 +256,10 @@ export function MonthlyComparisonChart({
             wrapperStyle={{ paddingTop: '8px' }}
             formatter={(value) => <span className="text-gray-300">{value}</span>}
           />
+          {comparisonBars.map((b) => (
+            <Bar key={b.dataKey} dataKey={b.dataKey} name={b.name} fill={b.fill} radius={[2, 2, 0, 0]} />
+          ))}
           <Bar dataKey="main" name="Main period" fill="#ef4444" radius={[2, 2, 0, 0]} />
-          <Bar dataKey="compare1Value" name={primaryLabel} fill="#f97316" radius={[2, 2, 0, 0]} />
-          {compareSecondaryYearsAgo > 0 ? (
-            <Bar dataKey="compare2Value" name={secondaryLegendName} fill="#a855f7" radius={[2, 2, 0, 0]} />
-          ) : null}
         </BarChart>
       </ResponsiveContainer>
       )}

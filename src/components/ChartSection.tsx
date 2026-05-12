@@ -31,9 +31,9 @@ export function ChartSection({
       </div>
       {timeRange === 'monthly' && (
         <p className="text-xs text-gray-500 mb-4 leading-snug">
-          Bars show the <strong>last 12 calendar months</strong> on or before your selected date, each as a
-          percentage of total Ukraine area (from daily snapshots). Labels use an extra decimal in monthly
-          view; hover shows km² with the same precision.
+          Bars show <strong>12 calendar months</strong> through your selected month. Months without daily
+          snapshots use <strong>weekly interpolation</strong> at month end (or your selected date in the current
+          month). Labels use an extra decimal in monthly view; hover shows km².
         </p>
       )}
       {timeRange === 'yearly' && (

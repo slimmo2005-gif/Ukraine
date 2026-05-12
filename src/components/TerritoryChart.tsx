@@ -12,9 +12,9 @@ import {
 } from 'recharts';
 import type { DailyTerritoryData, ChartDataPoint, TimeRange } from '@/types';
 import {
-  aggregateMonthly,
   aggregateYearly,
   aggregatedToControlChartPoints,
+  buildLastNMonthlyControlChartPoints,
   calculateYearlyRepoControlChartData,
   calculateYearlyFromWeeklyYearEndControlChartData,
   getPreWarFirstWeek2022ChartPoint,
@@ -22,13 +22,6 @@ import {
 
 /** Most recent month buckets shown in monthly chart mode */
 const MONTHLY_CHART_PERIOD_COUNT = 12;
-
-function takeLastN<T>(rows: T[], n: number): T[] {
-  if (rows.length <= n) {
-    return rows;
-  }
-  return rows.slice(-n);
-}
 
 type StackedControlBarPoint = ChartDataPoint & {
   russianPct: number;
@@ -121,8 +114,11 @@ export function TerritoryChart({
 
   const chartData = useMemo((): ChartDataPoint[] => {
     if (timeRange === 'monthly') {
-      return takeLastN(
-        aggregatedToControlChartPoints(aggregateMonthly(dailyData)),
+      const sortedDaily = [...dailyData].sort((a, b) => a.date.localeCompare(b.date));
+      return buildLastNMonthlyControlChartPoints(
+        sortedDaily,
+        weeklySnapshotData,
+        chartCutoffDate,
         MONTHLY_CHART_PERIOD_COUNT,
       );
     }
@@ -141,7 +137,7 @@ export function TerritoryChart({
       return [pre, ...points.filter((p) => p.formattedDate !== 'Pre-war')];
     }
     return points;
-  }, [timeRange, dailyData, yearlySnapshotsUpToDate, yearlyFromWeeklyControl, weeklySnapshotData]);
+  }, [timeRange, dailyData, yearlySnapshotsUpToDate, yearlyFromWeeklyControl, weeklySnapshotData, chartCutoffDate]);
 
   const stackedControlData = useMemo(
     () => buildStackedPercentPoints(chartData),

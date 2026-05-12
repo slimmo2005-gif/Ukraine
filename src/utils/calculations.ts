@@ -693,6 +693,87 @@ export function buildMonthlyComparisonRows(
 }
 
 /**
+ * Exactly `nMonths` calendar month buckets (through `selectedDate`’s month) for stacked control chart:
+ * daily monthly averages when available; else weekly-interpolated national control at month end
+ * (or `selectedDate` when that month is incomplete).
+ */
+export function buildLastNMonthlyControlChartPoints(
+  dailySortedAsc: DailyTerritoryData[],
+  weeklySortedAsc: DailyTerritoryData[],
+  selectedDate: string,
+  nMonths: number,
+): ChartDataPoint[] {
+  const sortedDaily = [...dailySortedAsc].sort((a, b) => a.date.localeCompare(b.date));
+  const dataThrough = sortedDaily.filter((d) => d.date <= selectedDate);
+  const monthlyAgg = aggregateMonthly(dataThrough);
+  const byPeriod = new Map(monthlyAgg.map((a) => [a.period, a]));
+  const sortedWeekly = [...weeklySortedAsc].sort((a, b) => a.date.localeCompare(b.date));
+
+  const keys = lastNCalendarMonthsThroughDate(selectedDate, nMonths);
+  const selYm = selectedDate.length >= 7 ? selectedDate.slice(0, 7) : '';
+
+  return keys.map((monthKey) => {
+    const a = byPeriod.get(monthKey);
+    if (a && a.daysCount > 0) {
+      return {
+        date: a.period,
+        formattedDate: formatPeriod(monthKey, 'monthly'),
+        russianControlled: a.russianAvg,
+        ukrainianControlled: a.ukrainianAvg,
+        disputed: a.disputedAvg,
+        russianChange: a.russianChangeSum,
+        ukrainianChange: a.ukrainianChangeSum,
+        disputedChange: a.disputedChangeSum,
+      };
+    }
+
+    const ym = parseYearMonthKey(monthKey);
+    const empty = (meta: string): ChartDataPoint => ({
+      date: `${monthKey}-01`,
+      formattedDate: formatPeriod(monthKey, 'monthly'),
+      russianControlled: 0,
+      ukrainianControlled: 0,
+      disputed: 0,
+      russianChange: 0,
+      ukrainianChange: 0,
+      disputedChange: 0,
+      snapshotMeta: meta,
+    });
+
+    if (!ym || sortedWeekly.length < 2) {
+      return empty('No daily or weekly data for this month.');
+    }
+
+    const monthEnd = lastDayKeyOfMonth(ym.year, ym.month);
+    const endTarget =
+      monthKey === selYm &&
+      selectedDate.length >= 10 &&
+      selectedDate >= `${monthKey}-01` &&
+      selectedDate < monthEnd
+        ? selectedDate
+        : monthEnd;
+
+    const state = interpolateTerritoryAtDate(sortedWeekly, endTarget);
+    if (!state) {
+      return empty('Weekly interpolation unavailable for this month.');
+    }
+
+    const u = state.total_area_km2 - state.total_russian_controlled_km2 - state.total_disputed_km2;
+    return {
+      date: endTarget,
+      formattedDate: formatPeriod(monthKey, 'monthly'),
+      russianControlled: state.total_russian_controlled_km2,
+      ukrainianControlled: u,
+      disputed: state.total_disputed_km2,
+      russianChange: 0,
+      ukrainianChange: 0,
+      disputedChange: 0,
+      snapshotMeta: `Weekly interpolation at ${endTarget} (no daily samples in ${monthKey}).`,
+    };
+  });
+}
+
+/**
  * Gets today's control metrics from the dataset
  */
 export function getTodayMetrics(data: DailyTerritoryData[]) {
