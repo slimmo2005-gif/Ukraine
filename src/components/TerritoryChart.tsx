@@ -1,7 +1,5 @@
 import { useMemo } from 'react';
 import {
-  LineChart,
-  Line,
   BarChart,
   Bar,
   XAxis,
@@ -12,15 +10,14 @@ import {
   ResponsiveContainer,
   LabelList,
 } from 'recharts';
-import type { DailyTerritoryData, ChartDataPoint, AggregatedData, TimeRange } from '@/types';
+import type { DailyTerritoryData, ChartDataPoint, TimeRange } from '@/types';
 import {
   aggregateMonthly,
   aggregateYearly,
   aggregatedToControlChartPoints,
   calculateYearlyRepoControlChartData,
-  calculateYearlyRepoChangeChartData,
   calculateYearlyFromWeeklyYearEndControlChartData,
-  calculateYearlyFromWeeklyYearEndChangeChartData,
+  getPreWarFirstWeek2022ChartPoint,
 } from '@/utils/calculations';
 
 /** Most recent month buckets shown in monthly chart mode */
@@ -81,9 +78,7 @@ function formatKm2(v: number, fractionDigits: 1 | 2 = 1): string {
 }
 
 /**
- * TerritoryChart - Multi-mode chart component for territorial control
- * Control: stacked bars by % of Ukraine (labels %, tooltip km²)
- * Change: monthly / yearly period changes
+ * Territory control chart — stacked % bars (monthly / yearly + optional Pre-war column).
  */
 interface TerritoryChartProps {
   dailyData: DailyTerritoryData[];
@@ -91,7 +86,6 @@ interface TerritoryChartProps {
   yearlySnapshotData: DailyTerritoryData[];
   selectedDate: string;
   timeRange: TimeRange;
-  chartType: 'control' | 'change';
 }
 
 export function TerritoryChart({
@@ -100,7 +94,6 @@ export function TerritoryChart({
   yearlySnapshotData,
   selectedDate,
   timeRange,
-  chartType,
 }: TerritoryChartProps) {
   const chartCutoffDate =
     (selectedDate && selectedDate.trim()) ||
@@ -123,65 +116,37 @@ export function TerritoryChart({
     [weeklySnapshotData, chartCutoffDate],
   );
 
-  const yearlyFromWeeklyChange = useMemo(
-    () => calculateYearlyFromWeeklyYearEndChangeChartData(weeklySnapshotData, chartCutoffDate),
-    [weeklySnapshotData, chartCutoffDate],
-  );
-
-  const yearlyChangeUsesAggregatedBars =
-    timeRange === 'yearly' &&
-    chartType === 'change' &&
-    yearlySnapshotsUpToDate.length < 2 &&
-    yearlyFromWeeklyChange.length < 2;
-
   const pctFractionDigits: 1 | 2 = timeRange === 'monthly' ? 2 : 1;
   const kmFractionDigits: 1 | 2 = timeRange === 'monthly' ? 2 : 1;
 
-  const chartData = useMemo((): (ChartDataPoint | AggregatedData)[] => {
+  const chartData = useMemo((): ChartDataPoint[] => {
     if (timeRange === 'monthly') {
-      if (chartType === 'control') {
-        return takeLastN(
-          aggregatedToControlChartPoints(aggregateMonthly(dailyData)),
-          MONTHLY_CHART_PERIOD_COUNT,
-        );
-      }
-      return takeLastN(aggregateMonthly(dailyData), MONTHLY_CHART_PERIOD_COUNT);
+      return takeLastN(
+        aggregatedToControlChartPoints(aggregateMonthly(dailyData)),
+        MONTHLY_CHART_PERIOD_COUNT,
+      );
     }
 
-    if (chartType === 'control') {
-      if (yearlySnapshotsUpToDate.length >= 2) {
-        return calculateYearlyRepoControlChartData(yearlySnapshotsUpToDate);
-      }
-      if (yearlyFromWeeklyControl.length >= 2) {
-        return yearlyFromWeeklyControl;
-      }
-      return aggregatedToControlChartPoints(aggregateYearly(dailyData));
-    }
+    let points: ChartDataPoint[];
     if (yearlySnapshotsUpToDate.length >= 2) {
-      return calculateYearlyRepoChangeChartData(yearlySnapshotsUpToDate);
+      points = calculateYearlyRepoControlChartData(yearlySnapshotsUpToDate);
+    } else if (yearlyFromWeeklyControl.length >= 2) {
+      points = yearlyFromWeeklyControl;
+    } else {
+      points = aggregatedToControlChartPoints(aggregateYearly(dailyData));
     }
-    if (yearlyFromWeeklyChange.length >= 2) {
-      return yearlyFromWeeklyChange;
-    }
-    return aggregateYearly(dailyData);
-  }, [
-    timeRange,
-    chartType,
-    dailyData,
-    yearlySnapshotsUpToDate,
-    yearlyFromWeeklyControl,
-    yearlyFromWeeklyChange,
-  ]);
 
-  const stackedControlData = useMemo(() => {
-    if (chartType !== 'control') {
-      return [] as StackedControlBarPoint[];
+    const pre = getPreWarFirstWeek2022ChartPoint(dailyData, weeklySnapshotData);
+    if (pre) {
+      return [pre, ...points.filter((p) => p.formattedDate !== 'Pre-war')];
     }
-    return buildStackedPercentPoints(chartData as ChartDataPoint[]);
-  }, [chartType, chartData]);
+    return points;
+  }, [timeRange, dailyData, yearlySnapshotsUpToDate, yearlyFromWeeklyControl, weeklySnapshotData]);
 
-  const changeUsesAggregatedBars =
-    chartType === 'change' && (timeRange === 'monthly' || yearlyChangeUsesAggregatedBars);
+  const stackedControlData = useMemo(
+    () => buildStackedPercentPoints(chartData),
+    [chartData],
+  );
 
   const ControlPercentTooltip = ({
     active,
@@ -233,187 +198,68 @@ export function TerritoryChart({
     );
   };
 
-  const ChangeTooltip = ({ active, payload, label }: {
-    active?: boolean;
-    payload?: Array<{ color: string; name: string; value: number; payload?: ChartDataPoint }>;
-    label?: string;
-  }) => {
-    if (active && payload && payload.length) {
-      const meta = payload[0]?.payload?.snapshotMeta;
-      return (
-        <div className="bg-osint-card border border-osint-border p-3 rounded-lg shadow-xl max-w-xs">
-          <p className="text-gray-300 font-medium mb-2">{label}</p>
-          {payload.map((entry, idx) => (
-            <p key={idx} className="text-sm" style={{ color: entry.color }}>
-              {entry.name}: {formatKm2(entry.value, kmFractionDigits)} km²
-            </p>
-          ))}
-          {meta ? (
-            <p className="text-gray-500 text-xs mt-2 leading-snug border-t border-osint-border pt-2">
-              {meta}
-            </p>
-          ) : null}
-        </div>
-      );
-    }
-    return null;
-  };
-
   const controlXKey = 'formattedDate' as const;
 
-  if (chartType === 'control') {
-    return (
-      <ResponsiveContainer width="100%" height={320}>
-        <BarChart
-          data={stackedControlData}
-          margin={{ top: 16, right: 12, bottom: 8, left: 4 }}
-        >
-          <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
-          <XAxis
-            dataKey={controlXKey}
-            stroke="#6b7280"
+  return (
+    <ResponsiveContainer width="100%" height={320}>
+      <BarChart
+        data={stackedControlData}
+        margin={{ top: 16, right: 12, bottom: 8, left: 4 }}
+      >
+        <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
+        <XAxis
+          dataKey={controlXKey}
+          stroke="#6b7280"
+          fontSize={11}
+          tick={{ fill: '#6b7280' }}
+          interval={timeRange === 'yearly' ? 'preserveStartEnd' : 0}
+          angle={timeRange === 'monthly' ? -35 : 0}
+          textAnchor={timeRange === 'monthly' ? 'end' : 'middle'}
+          height={timeRange === 'monthly' ? 56 : 40}
+        />
+        <YAxis
+          stroke="#6b7280"
+          fontSize={12}
+          tick={{ fill: '#6b7280' }}
+          domain={[0, 100]}
+          tickFormatter={(v) =>
+            timeRange === 'monthly' ? `${Number(v).toFixed(1)}%` : `${v}%`
+          }
+          label={{ value: '% of Ukraine', angle: -90, position: 'insideLeft', fill: '#6b7280' }}
+        />
+        <Tooltip content={<ControlPercentTooltip />} />
+        <Legend
+          wrapperStyle={{ paddingTop: '12px' }}
+          formatter={(value) => <span className="text-gray-300">{value}</span>}
+        />
+        <Bar dataKey="russianPct" name="Russian Controlled" stackId="a" fill="#ef4444" radius={[0, 0, 6, 6]}>
+          <LabelList
+            dataKey="russianPct"
+            position="center"
+            fill="#fecaca"
+            formatter={(v: number) => formatPctLabel(v, pctFractionDigits)}
             fontSize={11}
-            tick={{ fill: '#6b7280' }}
-            interval={timeRange === 'yearly' ? 'preserveStartEnd' : 0}
-            angle={timeRange === 'monthly' ? -35 : 0}
-            textAnchor={timeRange === 'monthly' ? 'end' : 'middle'}
-            height={timeRange === 'monthly' ? 56 : 36}
           />
-          <YAxis
-            stroke="#6b7280"
-            fontSize={12}
-            tick={{ fill: '#6b7280' }}
-            domain={[0, 100]}
-            tickFormatter={(v) =>
-              timeRange === 'monthly' ? `${Number(v).toFixed(1)}%` : `${v}%`
-            }
-            label={{ value: '% of Ukraine', angle: -90, position: 'insideLeft', fill: '#6b7280' }}
-          />
-          <Tooltip content={<ControlPercentTooltip />} />
-          <Legend
-            wrapperStyle={{ paddingTop: '12px' }}
-            formatter={(value) => <span className="text-gray-300">{value}</span>}
-          />
-          <Bar dataKey="russianPct" name="Russian Controlled" stackId="a" fill="#ef4444" radius={[0, 0, 6, 6]}>
-            <LabelList
-              dataKey="russianPct"
-              position="center"
-              fill="#fecaca"
-              formatter={(v: number) => formatPctLabel(v, pctFractionDigits)}
-              fontSize={11}
-            />
-          </Bar>
-          <Bar dataKey="ukrainianPct" name="Ukrainian Controlled" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]}>
-            <LabelList
-              dataKey="ukrainianPct"
-              position="center"
-              fill="#bfdbfe"
-              formatter={(v: number) => formatPctLabel(v, pctFractionDigits)}
-              fontSize={11}
-            />
-          </Bar>
-          <Bar dataKey="disputedPct" name="Disputed" stackId="a" fill="#f59e0b" radius={[6, 6, 0, 0]}>
-            <LabelList
-              dataKey="disputedPct"
-              position="center"
-              fill="#451a03"
-              formatter={(v: number) => formatPctLabel(v, pctFractionDigits)}
-              fontSize={11}
-            />
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
-    );
-  }
-
-  if (changeUsesAggregatedBars) {
-    return (
-      <ResponsiveContainer width="100%" height={300}>
-        <BarChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
-          <XAxis
-            dataKey="period"
-            stroke="#6b7280"
+        </Bar>
+        <Bar dataKey="ukrainianPct" name="Ukrainian Controlled" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]}>
+          <LabelList
+            dataKey="ukrainianPct"
+            position="center"
+            fill="#bfdbfe"
+            formatter={(v: number) => formatPctLabel(v, pctFractionDigits)}
             fontSize={11}
-            tick={{ fill: '#6b7280' }}
-            angle={-45}
-            textAnchor="end"
-            height={60}
           />
-          <YAxis
-            stroke="#6b7280"
-            fontSize={12}
-            tick={{ fill: '#6b7280' }}
-            label={{ value: 'km²', angle: -90, position: 'insideLeft', fill: '#6b7280' }}
+        </Bar>
+        <Bar dataKey="disputedPct" name="Disputed" stackId="a" fill="#f59e0b" radius={[6, 6, 0, 0]}>
+          <LabelList
+            dataKey="disputedPct"
+            position="center"
+            fill="#451a03"
+            formatter={(v: number) => formatPctLabel(v, pctFractionDigits)}
+            fontSize={11}
           />
-          <Tooltip content={<ChangeTooltip />} />
-          <Legend
-            wrapperStyle={{ paddingTop: '10px' }}
-            formatter={(value) => <span className="text-gray-300">{value}</span>}
-          />
-          <Bar dataKey="russianChangeSum" name="Russian Change" fill="#ef4444" radius={[2, 2, 0, 0]} />
-          <Bar dataKey="ukrainianChangeSum" name="Ukrainian Change" fill="#3b82f6" radius={[2, 2, 0, 0]} />
-          <Bar dataKey="disputedChangeSum" name="Disputed Change" fill="#f59e0b" radius={[2, 2, 0, 0]} />
-        </BarChart>
-      </ResponsiveContainer>
-    );
-  }
-
-  if (chartType === 'change') {
-    return (
-      <ResponsiveContainer width="100%" height={300}>
-        <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
-          <XAxis
-            dataKey="formattedDate"
-            stroke="#6b7280"
-            fontSize={12}
-            tick={{ fill: '#6b7280' }}
-            interval="preserveStartEnd"
-            minTickGap={8}
-          />
-          <YAxis
-            stroke="#6b7280"
-            fontSize={12}
-            tick={{ fill: '#6b7280' }}
-            label={{ value: 'km²', angle: -90, position: 'insideLeft', fill: '#6b7280' }}
-          />
-          <Tooltip content={<ChangeTooltip />} />
-          <Legend
-            wrapperStyle={{ paddingTop: '20px' }}
-            formatter={(value) => <span className="text-gray-300">{value}</span>}
-          />
-          <Line
-            type="monotone"
-            dataKey="russianChange"
-            name="Russian Change"
-            stroke="#ef4444"
-            strokeWidth={2}
-            dot={!yearlyChangeUsesAggregatedBars}
-            activeDot={{ r: 6, fill: '#ef4444' }}
-          />
-          <Line
-            type="monotone"
-            dataKey="ukrainianChange"
-            name="Ukrainian Change"
-            stroke="#3b82f6"
-            strokeWidth={2}
-            dot={!yearlyChangeUsesAggregatedBars}
-            activeDot={{ r: 6, fill: '#3b82f6' }}
-          />
-          <Line
-            type="monotone"
-            dataKey="disputedChange"
-            name="Disputed Change"
-            stroke="#f59e0b"
-            strokeWidth={2}
-            dot={!yearlyChangeUsesAggregatedBars}
-            activeDot={{ r: 6, fill: '#f59e0b' }}
-          />
-        </LineChart>
-      </ResponsiveContainer>
-    );
-  }
-
-  return null;
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
 }

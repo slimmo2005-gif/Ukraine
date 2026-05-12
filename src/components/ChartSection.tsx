@@ -4,9 +4,7 @@ import { TimeRangeToggle } from './TimeRangeToggle';
 import { TerritoryChart } from './TerritoryChart';
 
 /**
- * ChartSection - Container for chart with time range toggle
- * chartType: 'control' shows territory control levels
- * chartType: 'change' shows period changes
+ * ChartSection - Territory control over time with monthly / yearly toggle
  */
 interface ChartSectionProps {
   dailyData: DailyTerritoryData[];
@@ -14,7 +12,6 @@ interface ChartSectionProps {
   yearlySnapshotData: DailyTerritoryData[];
   selectedDate: string;
   title: string;
-  chartType: 'control' | 'change';
 }
 
 export function ChartSection({
@@ -23,53 +20,27 @@ export function ChartSection({
   yearlySnapshotData,
   selectedDate,
   title,
-  chartType,
 }: ChartSectionProps) {
   const [timeRange, setTimeRange] = useState<TimeRange>('monthly');
-
-  const resolvedTitle =
-    chartType === 'change' && timeRange === 'yearly'
-      ? 'Yearly changes'
-      : chartType === 'change' && timeRange === 'monthly'
-        ? 'Monthly changes'
-        : title;
 
   return (
     <div className="bg-osint-card rounded-lg p-6 border border-osint-border">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-        <h3 className="text-lg font-semibold text-white">{resolvedTitle}</h3>
+        <h3 className="text-lg font-semibold text-white">{title}</h3>
         <TimeRangeToggle value={timeRange} onChange={setTimeRange} />
       </div>
       {timeRange === 'monthly' && (
         <p className="text-xs text-gray-500 mb-4 leading-snug">
-          {chartType === 'control' ? (
-            <>
-              Bars show the <strong>last 12 calendar months</strong> on or before your selected date, each as a
-              percentage of total Ukraine area (from daily snapshots). Labels use an extra decimal in monthly
-              view; hover shows km² with the same precision.
-            </>
-          ) : (
-            <>
-              Monthly bars show the <strong>last 12 calendar months</strong> of summed daily net changes from
-              loaded daily snapshots (extra decimal in values when shown).
-            </>
-          )}
+          Bars show the <strong>last 12 calendar months</strong> on or before your selected date, each as a
+          percentage of total Ukraine area (from daily snapshots). Labels use an extra decimal in monthly
+          view; hover shows km² with the same precision.
         </p>
       )}
       {timeRange === 'yearly' && (
         <p className="text-xs text-gray-500 mb-4 leading-snug">
-          {chartType === 'control' ? (
-            <>
-              Yearly bars prefer <code className="text-gray-400">data/history/yearly</code> (or{' '}
-              <code className="text-gray-400">annual/</code>) when enough anchors exist; otherwise the last
-              weekly snapshot per calendar year. Otherwise averages from loaded dailies. Hover shows km².
-            </>
-          ) : (
-            <>
-              Yearly changes prefer yearly repo deltas, else year-over-year from last weekly anchor per year,
-              else summed daily changes by calendar year.
-            </>
-          )}
+          <strong>Pre-war</strong> uses the first week of Jan 2022 (daily or weekly snapshot, else weekly
+          interpolation). Other columns prefer yearly repo anchors, else last weekly snapshot per year, else
+          daily averages. Hover shows km².
         </p>
       )}
       <TerritoryChart
@@ -78,7 +49,6 @@ export function ChartSection({
         yearlySnapshotData={yearlySnapshotData}
         selectedDate={selectedDate}
         timeRange={timeRange}
-        chartType={chartType}
       />
     </div>
   );

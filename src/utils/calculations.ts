@@ -487,6 +487,159 @@ export function aggregateYearly(data: DailyTerritoryData[]): AggregatedData[] {
     .sort((a, b) => a.period.localeCompare(b.period));
 }
 
+/** Jan 1–7 2022 (first calendar week of 2022) for pre-war control column. */
+const FIRST_WEEK_2022_START = '2022-01-01';
+const FIRST_WEEK_2022_END = '2022-01-07';
+
+/**
+ * Control snapshot for the territory chart “Pre-war” column: prefer a daily/weekly file
+ * dated in the first week of Jan 2022, else weekly interpolation at mid-week, else any Jan 2022 daily.
+ */
+export function getPreWarFirstWeek2022ChartPoint(
+  dailySortedAsc: DailyTerritoryData[],
+  weeklySortedAsc: DailyTerritoryData[],
+): ChartDataPoint | null {
+  const inFirstWeek = (d: DailyTerritoryData) =>
+    d.date >= FIRST_WEEK_2022_START && d.date <= FIRST_WEEK_2022_END;
+  const dailySorted = [...dailySortedAsc].sort((a, b) => a.date.localeCompare(b.date));
+  const weeklySorted = [...weeklySortedAsc].sort((a, b) => a.date.localeCompare(b.date));
+
+  const fromDaily = dailySorted.find(inFirstWeek);
+  const fromWeekly = weeklySorted.find(inFirstWeek);
+  let row: DailyTerritoryData | null = fromDaily ?? fromWeekly ?? null;
+
+  if (!row && weeklySorted.length >= 2) {
+    row = interpolateTerritoryAtDate(weeklySorted, '2022-01-04');
+  }
+  if (!row) {
+    row = dailySorted.find((d) => d.date.startsWith('2022-01')) ?? null;
+  }
+  if (!row) {
+    return null;
+  }
+
+  const u = row.total_area_km2 - row.total_russian_controlled_km2 - row.total_disputed_km2;
+  const source =
+    fromDaily != null ? 'daily'
+    : fromWeekly != null ? 'weekly'
+    : 'interpolated or first Jan 2022 daily';
+  return {
+    date: row.date,
+    formattedDate: 'Pre-war',
+    russianControlled: row.total_russian_controlled_km2,
+    ukrainianControlled: u,
+    disputed: row.total_disputed_km2,
+    russianChange: 0,
+    ukrainianChange: 0,
+    disputedChange: 0,
+    snapshotMeta: `Jan 1–7 2022 (${row.date}, ${source}).`,
+  };
+}
+
+export type MonthlyComparisonMetric = 'russian_gain' | 'ukrainian_loss';
+
+export interface MonthlyComparisonRow {
+  monthKey: string;
+  label: string;
+  main: number;
+  compare1Value: number;
+  compare1Present: boolean;
+  compare2Value: number;
+  compare2Present: boolean;
+}
+
+function lastNCalendarMonthsThroughDate(selectedDateKey: string, n: number): string[] {
+  const m = selectedDateKey.match(/^(\d{4})-(\d{2})-/);
+  if (!m) {
+    return [];
+  }
+  let y = parseInt(m[1], 10);
+  let mo = parseInt(m[2], 10);
+  const out: string[] = [];
+  const count = Math.min(Math.max(1, n), 60);
+  for (let i = 0; i < count; i++) {
+    out.unshift(`${y}-${String(mo).padStart(2, '0')}`);
+    mo -= 1;
+    if (mo < 1) {
+      mo = 12;
+      y -= 1;
+    }
+  }
+  return out;
+}
+
+function shiftMonthByYears(ym: string, yearsAgo: number): string {
+  const [y, mo] = ym.split('-').map((x) => parseInt(x, 10));
+  return `${y - yearsAgo}-${String(mo).padStart(2, '0')}`;
+}
+
+/**
+ * Month-by-month comparison: “main” window is the last `windowMonths` calendar months through
+ * `selectedDate`’s month; each bar compares net change in that month to the same calendar month
+ * N years ago (one or two comparison offsets).
+ */
+export function buildMonthlyComparisonRows(
+  fullDailySortedAsc: DailyTerritoryData[],
+  selectedDate: string,
+  options: {
+    windowMonths: number;
+    comparePrimaryYearsAgo: number;
+    compareSecondaryYearsAgo: number | null;
+    metric: MonthlyComparisonMetric;
+  },
+): MonthlyComparisonRow[] {
+  if (!selectedDate || fullDailySortedAsc.length === 0) {
+    return [];
+  }
+
+  const dataThrough = fullDailySortedAsc.filter((d) => d.date <= selectedDate);
+  const monthlyAgg = aggregateMonthly(dataThrough);
+  const byPeriod = new Map(monthlyAgg.map((a) => [a.period, a]));
+
+  const keys = lastNCalendarMonthsThroughDate(selectedDate, options.windowMonths);
+
+  const pick = (a: AggregatedData | undefined) => {
+    if (!a) {
+      return null;
+    }
+    return options.metric === 'russian_gain' ? a.russianChangeSum : -a.ukrainianChangeSum;
+  };
+
+  return keys.map((monthKey) => {
+    const agg = byPeriod.get(monthKey);
+    const mainRaw = pick(agg);
+    const main = mainRaw ?? 0;
+
+    const k1 = shiftMonthByYears(monthKey, options.comparePrimaryYearsAgo);
+    const v1 = pick(byPeriod.get(k1));
+    const compare1Present = v1 !== null && v1 !== undefined && !Number.isNaN(v1);
+    const compare1Value = compare1Present ? v1! : 0;
+
+    let compare2Value = 0;
+    let compare2Present = false;
+    if (
+      options.compareSecondaryYearsAgo != null &&
+      options.compareSecondaryYearsAgo > 0 &&
+      options.compareSecondaryYearsAgo !== options.comparePrimaryYearsAgo
+    ) {
+      const k2 = shiftMonthByYears(monthKey, options.compareSecondaryYearsAgo);
+      const v2 = pick(byPeriod.get(k2));
+      compare2Present = v2 !== null && v2 !== undefined && !Number.isNaN(v2);
+      compare2Value = compare2Present ? v2! : 0;
+    }
+
+    return {
+      monthKey,
+      label: formatPeriod(monthKey, 'monthly'),
+      main,
+      compare1Value,
+      compare1Present,
+      compare2Value,
+      compare2Present,
+    };
+  });
+}
+
 /**
  * Gets today's control metrics from the dataset
  */

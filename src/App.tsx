@@ -12,7 +12,7 @@ import {
 import { Header } from '@/components/Header';
 import { DeepStateAttribution } from '@/components/DeepStateAttribution';
 import { ChartSection } from '@/components/ChartSection';
-import { TerritoryMap } from '@/components/TerritoryMap';
+import { MonthlyComparisonChart } from '@/components/MonthlyComparisonChart';
 import { DataSourceSelector } from '@/components/DataSourceSelector';
 import { ViewLevelToggle } from '@/components/ViewLevelToggle';
 import { MarimekkoChart, OblastGridView } from '@/components/MarimekkoChart';
@@ -41,8 +41,8 @@ const DATA_FETCH_CONCURRENCY = 12;
  * Fetch territory data from GitHub repository
  * Repo: https://github.com/slimmo2005-gif/ukraine-territory-data
  */
-/** How far back to load daily JSON for charts and time travel (six completed months need roughly 7+ months of files). */
-const DAILY_HISTORY_LOOKBACK_DAYS = 400;
+/** Daily history depth: must reach early 2022 for pre-war + multi-year monthly comparison (~5.5y). */
+const DAILY_HISTORY_LOOKBACK_DAYS = 2000;
 
 const DATA_REPO_RAW_BASE_URL = 'https://raw.githubusercontent.com/slimmo2005-gif/ukraine-territory-data';
 const DATA_REPO_API_BASE_URL = 'https://api.github.com/repos/slimmo2005-gif/ukraine-territory-data/contents';
@@ -1287,39 +1287,17 @@ function App() {
 
         {/* Charts Section */}
         <section className="mb-10">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 gap-6">
             <ChartSection
               dailyData={dataUpToSelected}
               weeklySnapshotData={weeklySnapshotData}
               yearlySnapshotData={yearlySnapshotData}
               selectedDate={selectedDate || latestAvailableDate}
               title="Territory Control Over Time"
-              chartType="control"
             />
-            <ChartSection
-              dailyData={dataUpToSelected}
-              weeklySnapshotData={weeklySnapshotData}
-              yearlySnapshotData={yearlySnapshotData}
+            <MonthlyComparisonChart
+              fullDailyData={currentData}
               selectedDate={selectedDate || latestAvailableDate}
-              title="Daily Changes"
-              chartType="change"
-            />
-          </div>
-        </section>
-
-        {/* Map Section */}
-        <section className="mb-10">
-          <div className="bg-osint-card rounded-lg p-6 border border-osint-border">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-              <h3 className="text-lg font-semibold text-white">Frontline Map</h3>
-              <span className="text-xs text-gray-500">
-                Map slider mirrors the Date Navigator above. Slide to time-travel.
-              </span>
-            </div>
-            <TerritoryMap
-              data={currentData}
-              selectedDate={selectedDate}
-              onDateChange={setSelectedDate}
             />
           </div>
         </section>
@@ -1389,7 +1367,7 @@ function App() {
             </div>
             <div className="text-right">
               <p className="text-xs text-gray-500">
-                Built with React + TypeScript + Leaflet + Recharts
+                Built with React + TypeScript + Recharts
               </p>
               <p className="text-xs text-gray-600 mt-1">
                 View: {viewLevel === 'total' ? 'Total Ukraine' : OBLAST_NAMES[selectedOblast]}
