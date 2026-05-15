@@ -97,6 +97,27 @@ export function calculateControlData(data: DailyTerritoryData[]): ChartDataPoint
   });
 }
 
+/** Control levels over time for one oblast (same shape as national `calculateControlData`). */
+export function calculateControlDataForOblast(
+  data: DailyTerritoryData[],
+  oblast: OblastKey,
+): ChartDataPoint[] {
+  return data.map((day, index) => {
+    const { russianChange, ukrainianChange, disputedChange } = getDerivedOblastChanges(data, index, oblast);
+    const oRow = day.oblasts.find((o) => o.oblast === oblast);
+    return {
+      date: day.date,
+      formattedDate: formatDate(day.date),
+      russianControlled: oRow?.russian_controlled_km2 ?? 0,
+      ukrainianControlled: oRow?.ukrainian_controlled_km2 ?? 0,
+      disputed: oRow?.disputed_controlled_km2 ?? 0,
+      russianChange,
+      ukrainianChange,
+      disputedChange,
+    };
+  });
+}
+
 /**
  * Calculates daily movement directly from consecutive control snapshots.
  * This keeps the Daily Changes chart strictly consistent with control-over-time values.
@@ -173,9 +194,12 @@ export function calculateWeeklyRepoControlChartData(weekly: DailyTerritoryData[]
 }
 
 /** Control levels from `data/history/yearly` (or annual/) anchors; X-axis label is calendar year. */
-export function calculateYearlyRepoControlChartData(yearly: DailyTerritoryData[]): ChartDataPoint[] {
+export function calculateYearlyRepoControlChartData(
+  yearly: DailyTerritoryData[],
+  oblast?: OblastKey,
+): ChartDataPoint[] {
   const sorted = [...yearly].sort((a, b) => a.date.localeCompare(b.date));
-  const base = calculateControlData(sorted);
+  const base = oblast ? calculateControlDataForOblast(sorted, oblast) : calculateControlData(sorted);
   return base.map((point, i) => ({
     ...point,
     formattedDate: sorted[i].date.slice(0, 4),
@@ -212,9 +236,24 @@ export function calculateYearlyRepoChangeChartData(yearly: DailyTerritoryData[])
 export function calculateYearlyFromWeeklyYearEndControlChartData(
   weeklySnapshots: DailyTerritoryData[],
   selectedDate: string,
+  oblast?: OblastKey,
 ): ChartDataPoint[] {
   const rows = getLastWeeklyAnchorPerYear(weeklySnapshots, selectedDate);
   return rows.map(({ year, anchor: day }) => {
+    if (oblast) {
+      const o = day.oblasts.find((x) => x.oblast === oblast);
+      return {
+        date: day.date,
+        formattedDate: String(year),
+        russianControlled: o?.russian_controlled_km2 ?? 0,
+        ukrainianControlled: o?.ukrainian_controlled_km2 ?? 0,
+        disputed: o?.disputed_controlled_km2 ?? 0,
+        russianChange: 0,
+        ukrainianChange: 0,
+        disputedChange: 0,
+        snapshotMeta: `Last weekly anchor in ${year} (${day.date})`,
+      };
+    }
     const ukrainianControlled =
       day.total_area_km2 - day.total_russian_controlled_km2 - day.total_disputed_km2;
     return {
@@ -434,6 +473,61 @@ export function aggregateMonthly(data: DailyTerritoryData[]): AggregatedData[] {
 }
 
 /**
+ * Monthly aggregates for a single oblast (control averages + derived change sums).
+ */
+export function aggregateMonthlyOblast(data: DailyTerritoryData[], oblast: OblastKey): AggregatedData[] {
+  const monthly: Map<string, {
+    russianControlSum: number;
+    ukrainianControlSum: number;
+    disputedControlSum: number;
+    totalAreaSum: number;
+    russianChangeSum: number;
+    ukrainianChangeSum: number;
+    disputedChangeSum: number;
+    days: number;
+  }> = new Map();
+
+  data.forEach((day, index) => {
+    const key = day.date.substring(0, 7);
+    const { russianChange, ukrainianChange, disputedChange } = getDerivedOblastChanges(data, index, oblast);
+    const row = day.oblasts.find((o) => o.oblast === oblast);
+    if (!row) {
+      return;
+    }
+
+    const existing = monthly.get(key) || {
+      russianControlSum: 0, ukrainianControlSum: 0, disputedControlSum: 0, totalAreaSum: 0,
+      russianChangeSum: 0, ukrainianChangeSum: 0, disputedChangeSum: 0,
+      days: 0,
+    };
+
+    monthly.set(key, {
+      russianControlSum: existing.russianControlSum + row.russian_controlled_km2,
+      ukrainianControlSum: existing.ukrainianControlSum + row.ukrainian_controlled_km2,
+      disputedControlSum: existing.disputedControlSum + row.disputed_controlled_km2,
+      totalAreaSum: existing.totalAreaSum + row.total_area_km2,
+      russianChangeSum: existing.russianChangeSum + russianChange,
+      ukrainianChangeSum: existing.ukrainianChangeSum + ukrainianChange,
+      disputedChangeSum: existing.disputedChangeSum + disputedChange,
+      days: existing.days + 1,
+    });
+  });
+
+  return Array.from(monthly.entries())
+    .map(([period, values]) => ({
+      period,
+      russianAvg: parseFloat((values.russianControlSum / values.days).toFixed(1)),
+      ukrainianAvg: parseFloat((values.ukrainianControlSum / values.days).toFixed(1)),
+      disputedAvg: parseFloat((values.disputedControlSum / values.days).toFixed(1)),
+      russianChangeSum: parseFloat(values.russianChangeSum.toFixed(1)),
+      ukrainianChangeSum: parseFloat(values.ukrainianChangeSum.toFixed(1)),
+      disputedChangeSum: parseFloat(values.disputedChangeSum.toFixed(1)),
+      daysCount: values.days,
+    }))
+    .sort((a, b) => a.period.localeCompare(b.period));
+}
+
+/**
  * Aggregates daily data into yearly averages and change sums
  */
 export function aggregateYearly(data: DailyTerritoryData[]): AggregatedData[] {
@@ -487,6 +581,59 @@ export function aggregateYearly(data: DailyTerritoryData[]): AggregatedData[] {
     .sort((a, b) => a.period.localeCompare(b.period));
 }
 
+/** Yearly aggregates for one oblast. */
+export function aggregateYearlyOblast(data: DailyTerritoryData[], oblast: OblastKey): AggregatedData[] {
+  const yearly: Map<string, {
+    russianControlSum: number;
+    ukrainianControlSum: number;
+    disputedControlSum: number;
+    totalAreaSum: number;
+    russianChangeSum: number;
+    ukrainianChangeSum: number;
+    disputedChangeSum: number;
+    days: number;
+  }> = new Map();
+
+  data.forEach((day, index) => {
+    const key = day.date.substring(0, 4);
+    const { russianChange, ukrainianChange, disputedChange } = getDerivedOblastChanges(data, index, oblast);
+    const oRow = day.oblasts.find((o) => o.oblast === oblast);
+    if (!oRow) {
+      return;
+    }
+
+    const existing = yearly.get(key) || {
+      russianControlSum: 0, ukrainianControlSum: 0, disputedControlSum: 0, totalAreaSum: 0,
+      russianChangeSum: 0, ukrainianChangeSum: 0, disputedChangeSum: 0,
+      days: 0,
+    };
+
+    yearly.set(key, {
+      russianControlSum: existing.russianControlSum + oRow.russian_controlled_km2,
+      ukrainianControlSum: existing.ukrainianControlSum + oRow.ukrainian_controlled_km2,
+      disputedControlSum: existing.disputedControlSum + oRow.disputed_controlled_km2,
+      totalAreaSum: existing.totalAreaSum + oRow.total_area_km2,
+      russianChangeSum: existing.russianChangeSum + russianChange,
+      ukrainianChangeSum: existing.ukrainianChangeSum + ukrainianChange,
+      disputedChangeSum: existing.disputedChangeSum + disputedChange,
+      days: existing.days + 1,
+    });
+  });
+
+  return Array.from(yearly.entries())
+    .map(([period, values]) => ({
+      period,
+      russianAvg: parseFloat((values.russianControlSum / values.days).toFixed(1)),
+      ukrainianAvg: parseFloat((values.ukrainianControlSum / values.days).toFixed(1)),
+      disputedAvg: parseFloat((values.disputedControlSum / values.days).toFixed(1)),
+      russianChangeSum: parseFloat(values.russianChangeSum.toFixed(1)),
+      ukrainianChangeSum: parseFloat(values.ukrainianChangeSum.toFixed(1)),
+      disputedChangeSum: parseFloat(values.disputedChangeSum.toFixed(1)),
+      daysCount: values.days,
+    }))
+    .sort((a, b) => a.period.localeCompare(b.period));
+}
+
 /** Jan 1–7 2022 (first calendar week of 2022) for pre-war control column. */
 const FIRST_WEEK_2022_START = '2022-01-01';
 const FIRST_WEEK_2022_END = '2022-01-07';
@@ -498,6 +645,7 @@ const FIRST_WEEK_2022_END = '2022-01-07';
 export function getPreWarFirstWeek2022ChartPoint(
   dailySortedAsc: DailyTerritoryData[],
   weeklySortedAsc: DailyTerritoryData[],
+  oblast?: OblastKey,
 ): ChartDataPoint | null {
   const inFirstWeek = (d: DailyTerritoryData) =>
     d.date >= FIRST_WEEK_2022_START && d.date <= FIRST_WEEK_2022_END;
@@ -518,11 +666,27 @@ export function getPreWarFirstWeek2022ChartPoint(
     return null;
   }
 
-  const u = row.total_area_km2 - row.total_russian_controlled_km2 - row.total_disputed_km2;
   const source =
     fromDaily != null ? 'daily'
     : fromWeekly != null ? 'weekly'
     : 'interpolated or first Jan 2022 daily';
+
+  if (oblast) {
+    const o = row.oblasts.find((x) => x.oblast === oblast);
+    return {
+      date: row.date,
+      formattedDate: 'Pre-war',
+      russianControlled: o?.russian_controlled_km2 ?? 0,
+      ukrainianControlled: o?.ukrainian_controlled_km2 ?? 0,
+      disputed: o?.disputed_controlled_km2 ?? 0,
+      russianChange: 0,
+      ukrainianChange: 0,
+      disputedChange: 0,
+      snapshotMeta: `Jan 1–7 2022 (${row.date}, ${source}).`,
+    };
+  }
+
+  const u = row.total_area_km2 - row.total_russian_controlled_km2 - row.total_disputed_km2;
   return {
     date: row.date,
     formattedDate: 'Pre-war',
@@ -592,6 +756,7 @@ function resolveNationalMonthDeltas(
   byPeriod: Map<string, AggregatedData>,
   weeklySortedAsc: DailyTerritoryData[],
   selectedDate: string,
+  oblast?: OblastKey,
 ): { russian: number; ukrainianSum: number } | null {
   const agg = byPeriod.get(monthKey);
   if (agg && agg.daysCount > 0) {
@@ -613,7 +778,7 @@ function resolveNationalMonthDeltas(
     selectedDate < monthEnd
       ? selectedDate
       : undefined;
-  const w = tryMonthNetFromWeekly(weeklySortedAsc, ym.year, ym.month, undefined, clamp);
+  const w = tryMonthNetFromWeekly(weeklySortedAsc, ym.year, ym.month, oblast, clamp);
   if (!w) {
     return null;
   }
@@ -634,6 +799,7 @@ export function buildMonthlyComparisonRows(
     compareSecondaryYearsAgo: number | null;
     metric: MonthlyComparisonMetric;
     weeklySnapshots?: DailyTerritoryData[];
+    oblast?: OblastKey;
   },
 ): MonthlyComparisonRow[] {
   if (!selectedDate || fullDailySortedAsc.length === 0) {
@@ -642,7 +808,9 @@ export function buildMonthlyComparisonRows(
 
   const sortedDaily = [...fullDailySortedAsc].sort((a, b) => a.date.localeCompare(b.date));
   const dataThrough = sortedDaily.filter((d) => d.date <= selectedDate);
-  const monthlyAgg = aggregateMonthly(dataThrough);
+  const monthlyAgg = options.oblast
+    ? aggregateMonthlyOblast(dataThrough, options.oblast)
+    : aggregateMonthly(dataThrough);
   const byPeriod = new Map(monthlyAgg.map((a) => [a.period, a]));
   const weeklySorted = [...(options.weeklySnapshots ?? [])].sort((a, b) => a.date.localeCompare(b.date));
 
@@ -656,12 +824,12 @@ export function buildMonthlyComparisonRows(
   };
 
   return keys.map((monthKey) => {
-    const mainNet = resolveNationalMonthDeltas(monthKey, byPeriod, weeklySorted, selectedDate);
+    const mainNet = resolveNationalMonthDeltas(monthKey, byPeriod, weeklySorted, selectedDate, options.oblast);
     const mainRaw = pickFromResolved(mainNet);
     const main = mainRaw ?? 0;
 
     const k1 = shiftMonthByYears(monthKey, options.comparePrimaryYearsAgo);
-    const n1 = resolveNationalMonthDeltas(k1, byPeriod, weeklySorted, selectedDate);
+    const n1 = resolveNationalMonthDeltas(k1, byPeriod, weeklySorted, selectedDate, options.oblast);
     const v1 = pickFromResolved(n1);
     const compare1Present = v1 !== null && v1 !== undefined && !Number.isNaN(v1);
     const compare1Value = compare1Present ? v1! : 0;
@@ -674,7 +842,7 @@ export function buildMonthlyComparisonRows(
       options.compareSecondaryYearsAgo !== options.comparePrimaryYearsAgo
     ) {
       const k2 = shiftMonthByYears(monthKey, options.compareSecondaryYearsAgo);
-      const n2 = resolveNationalMonthDeltas(k2, byPeriod, weeklySorted, selectedDate);
+      const n2 = resolveNationalMonthDeltas(k2, byPeriod, weeklySorted, selectedDate, options.oblast);
       const v2 = pickFromResolved(n2);
       compare2Present = v2 !== null && v2 !== undefined && !Number.isNaN(v2);
       compare2Value = compare2Present ? v2! : 0;
@@ -702,10 +870,13 @@ export function buildLastNMonthlyControlChartPoints(
   weeklySortedAsc: DailyTerritoryData[],
   selectedDate: string,
   nMonths: number,
+  oblast?: OblastKey,
 ): ChartDataPoint[] {
   const sortedDaily = [...dailySortedAsc].sort((a, b) => a.date.localeCompare(b.date));
   const dataThrough = sortedDaily.filter((d) => d.date <= selectedDate);
-  const monthlyAgg = aggregateMonthly(dataThrough);
+  const monthlyAgg = oblast
+    ? aggregateMonthlyOblast(dataThrough, oblast)
+    : aggregateMonthly(dataThrough);
   const byPeriod = new Map(monthlyAgg.map((a) => [a.period, a]));
   const sortedWeekly = [...weeklySortedAsc].sort((a, b) => a.date.localeCompare(b.date));
 
@@ -756,6 +927,21 @@ export function buildLastNMonthlyControlChartPoints(
     const state = interpolateTerritoryAtDate(sortedWeekly, endTarget);
     if (!state) {
       return empty('Weekly interpolation unavailable for this month.');
+    }
+
+    if (oblast) {
+      const o = state.oblasts.find((x) => x.oblast === oblast);
+      return {
+        date: endTarget,
+        formattedDate: formatPeriod(monthKey, 'monthly'),
+        russianControlled: o?.russian_controlled_km2 ?? 0,
+        ukrainianControlled: o?.ukrainian_controlled_km2 ?? 0,
+        disputed: o?.disputed_controlled_km2 ?? 0,
+        russianChange: 0,
+        ukrainianChange: 0,
+        disputedChange: 0,
+        snapshotMeta: `Weekly interpolation at ${endTarget} (no daily samples in ${monthKey}).`,
+      };
     }
 
     const u = state.total_area_km2 - state.total_russian_controlled_km2 - state.total_disputed_km2;

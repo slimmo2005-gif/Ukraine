@@ -35,8 +35,8 @@ export type OblastKey =
 // Territory control status
 export type ControlStatus = 'russian' | 'ukrainian' | 'disputed';
 
-// Data sources for tracking
-export type DataSource = 'deepstate' | 'isw' | 'combined';
+// Data sources for tracking (app uses DeepState-only snapshots)
+export type DataSource = 'deepstate';
 
 // Territory control for a single oblast
 export interface OblastControl {

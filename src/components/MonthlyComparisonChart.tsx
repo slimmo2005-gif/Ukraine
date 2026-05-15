@@ -9,7 +9,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
-import type { DailyTerritoryData } from '@/types';
+import type { DailyTerritoryData, OblastKey } from '@/types';
 import {
   buildMonthlyComparisonRows,
   type MonthlyComparisonMetric,
@@ -26,6 +26,7 @@ interface MonthlyComparisonChartProps {
   fullDailyData: DailyTerritoryData[];
   weeklySnapshotData: DailyTerritoryData[];
   selectedDate: string;
+  oblast?: OblastKey;
 }
 
 const WINDOW_OPTIONS = [6, 12, 18, 24] as const;
@@ -35,6 +36,7 @@ export function MonthlyComparisonChart({
   fullDailyData,
   weeklySnapshotData,
   selectedDate,
+  oblast,
 }: MonthlyComparisonChartProps) {
   const [metric, setMetric] = useState<MonthlyComparisonMetric>('russian_gain');
   const [windowMonths, setWindowMonths] = useState<number>(12);
@@ -49,6 +51,7 @@ export function MonthlyComparisonChart({
         compareSecondaryYearsAgo: compareSecondaryYearsAgo > 0 ? compareSecondaryYearsAgo : null,
         metric,
         weeklySnapshots: weeklySnapshotData,
+        oblast,
       }),
     [
       fullDailyData,
@@ -58,6 +61,7 @@ export function MonthlyComparisonChart({
       comparePrimaryYearsAgo,
       compareSecondaryYearsAgo,
       metric,
+      oblast,
     ],
   );
 

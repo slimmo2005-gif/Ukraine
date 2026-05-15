@@ -1,8 +1,7 @@
 import type { DataSource } from '@/types';
 
 /**
- * DataSourceSelector - Select which data source to display
- * Supports: DeepState Map, Institute for the Study of War (ISW), Combined/Averaged
+ * DataSourceSelector — this app ships DeepState-only data; one option for consistency if reused.
  */
 interface DataSourceSelectorProps {
   selectedSource: DataSource;
@@ -13,25 +12,15 @@ interface DataSourceSelectorProps {
 const SOURCE_INFO: Record<DataSource, { name: string; description: string; color: string }> = {
   deepstate: {
     name: 'DeepStateMap',
-    description: 'Crowdsourced territory control',
+    description: 'Crowdsourced territory control (this dashboard uses DeepState only)',
     color: '#0057B7',
-  },
-  isw: {
-    name: 'ISW',
-    description: 'Institute for the Study of War',
-    color: '#3b82f6',
-  },
-  combined: {
-    name: 'Combined',
-    description: 'Average of all sources',
-    color: '#8b5cf6',
   },
 };
 
 export function DataSourceSelector({
   selectedSource,
   onSourceChange,
-  availableSources = ['deepstate', 'isw', 'combined'],
+  availableSources = ['deepstate'],
 }: DataSourceSelectorProps) {
   return (
     <div className="flex flex-col gap-2">
@@ -40,10 +29,11 @@ export function DataSourceSelector({
         {availableSources.map((source) => {
           const info = SOURCE_INFO[source];
           const isSelected = selectedSource === source;
-          
+
           return (
             <button
               key={source}
+              type="button"
               onClick={() => onSourceChange(source)}
               className={`
                 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200
@@ -59,9 +49,8 @@ export function DataSourceSelector({
               }}
               title={info.description}
             >
-              {/* Indicator dot */}
-              <span 
-                className="w-2 h-2 rounded-full" 
+              <span
+                className="w-2 h-2 rounded-full"
                 style={{ backgroundColor: info.color }}
               />
               <span>{info.name}</span>

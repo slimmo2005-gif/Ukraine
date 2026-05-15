@@ -73,7 +73,7 @@ export function generateMockControlData(source: DataSource = 'deepstate'): Daily
   const today = new Date();
   
   // Track current control state that evolves day by day
-  let currentControl = JSON.parse(JSON.stringify(INITIAL_CONTROL)) as typeof INITIAL_CONTROL;
+  const currentControl = JSON.parse(JSON.stringify(INITIAL_CONTROL)) as typeof INITIAL_CONTROL;
   
   for (let i = 89; i >= 0; i--) {
     const date = new Date(today);
@@ -186,13 +186,11 @@ export function generateMockControlData(source: DataSource = 'deepstate'): Daily
 }
 
 /**
- * Generate data for multiple sources (for testing combined view)
+ * Mock bundles (DeepState-only in this app)
  */
 export function generateMultiSourceData(): Record<DataSource, DailyTerritoryData[]> {
   return {
     deepstate: generateMockControlData('deepstate'),
-    isw: generateMockControlData('isw'),
-    combined: generateMockControlData('combined'),
   };
 }
 

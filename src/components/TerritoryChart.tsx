@@ -10,9 +10,10 @@ import {
   ResponsiveContainer,
   LabelList,
 } from 'recharts';
-import type { DailyTerritoryData, ChartDataPoint, TimeRange } from '@/types';
+import type { DailyTerritoryData, ChartDataPoint, TimeRange, OblastKey } from '@/types';
 import {
   aggregateYearly,
+  aggregateYearlyOblast,
   aggregatedToControlChartPoints,
   buildLastNMonthlyControlChartPoints,
   calculateYearlyRepoControlChartData,
@@ -79,6 +80,8 @@ interface TerritoryChartProps {
   yearlySnapshotData: DailyTerritoryData[];
   selectedDate: string;
   timeRange: TimeRange;
+  /** When set, stacked bars are shares of this oblast’s reported control areas (not national). */
+  oblast?: OblastKey;
 }
 
 export function TerritoryChart({
@@ -87,6 +90,7 @@ export function TerritoryChart({
   yearlySnapshotData,
   selectedDate,
   timeRange,
+  oblast,
 }: TerritoryChartProps) {
   const chartCutoffDate =
     (selectedDate && selectedDate.trim()) ||
@@ -105,12 +109,18 @@ export function TerritoryChart({
   );
 
   const yearlyFromWeeklyControl = useMemo(
-    () => calculateYearlyFromWeeklyYearEndControlChartData(weeklySnapshotData, chartCutoffDate),
-    [weeklySnapshotData, chartCutoffDate],
+    () =>
+      calculateYearlyFromWeeklyYearEndControlChartData(
+        weeklySnapshotData,
+        chartCutoffDate,
+        oblast,
+      ),
+    [weeklySnapshotData, chartCutoffDate, oblast],
   );
 
   const pctFractionDigits: 1 | 2 = timeRange === 'monthly' ? 2 : 1;
   const kmFractionDigits: 1 | 2 = timeRange === 'monthly' ? 2 : 1;
+  const yPercentLabel = oblast ? '% of oblast' : '% of Ukraine';
 
   const chartData = useMemo((): ChartDataPoint[] => {
     if (timeRange === 'monthly') {
@@ -120,24 +130,35 @@ export function TerritoryChart({
         weeklySnapshotData,
         chartCutoffDate,
         MONTHLY_CHART_PERIOD_COUNT,
+        oblast,
       );
     }
 
     let points: ChartDataPoint[];
     if (yearlySnapshotsUpToDate.length >= 2) {
-      points = calculateYearlyRepoControlChartData(yearlySnapshotsUpToDate);
+      points = calculateYearlyRepoControlChartData(yearlySnapshotsUpToDate, oblast);
     } else if (yearlyFromWeeklyControl.length >= 2) {
       points = yearlyFromWeeklyControl;
     } else {
-      points = aggregatedToControlChartPoints(aggregateYearly(dailyData));
+      points = oblast
+        ? aggregatedToControlChartPoints(aggregateYearlyOblast(dailyData, oblast))
+        : aggregatedToControlChartPoints(aggregateYearly(dailyData));
     }
 
-    const pre = getPreWarFirstWeek2022ChartPoint(dailyData, weeklySnapshotData);
+    const pre = getPreWarFirstWeek2022ChartPoint(dailyData, weeklySnapshotData, oblast);
     if (pre) {
       return [pre, ...points.filter((p) => p.formattedDate !== 'Pre-war')];
     }
     return points;
-  }, [timeRange, dailyData, yearlySnapshotsUpToDate, yearlyFromWeeklyControl, weeklySnapshotData, chartCutoffDate]);
+  }, [
+    timeRange,
+    dailyData,
+    yearlySnapshotsUpToDate,
+    yearlyFromWeeklyControl,
+    weeklySnapshotData,
+    chartCutoffDate,
+    oblast,
+  ]);
 
   const stackedControlData = useMemo(
     () => buildStackedPercentPoints(chartData),
@@ -221,7 +242,7 @@ export function TerritoryChart({
           tickFormatter={(v) =>
             timeRange === 'monthly' ? `${Number(v).toFixed(1)}%` : `${v}%`
           }
-          label={{ value: '% of Ukraine', angle: -90, position: 'insideLeft', fill: '#6b7280' }}
+          label={{ value: yPercentLabel, angle: -90, position: 'insideLeft', fill: '#6b7280' }}
         />
         <Tooltip content={<ControlPercentTooltip />} />
         <Legend

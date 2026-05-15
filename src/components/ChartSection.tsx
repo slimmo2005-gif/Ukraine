@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { DailyTerritoryData, TimeRange } from '@/types';
+import type { DailyTerritoryData, TimeRange, OblastKey } from '@/types';
 import { TimeRangeToggle } from './TimeRangeToggle';
 import { TerritoryChart } from './TerritoryChart';
 
@@ -12,6 +12,8 @@ interface ChartSectionProps {
   yearlySnapshotData: DailyTerritoryData[];
   selectedDate: string;
   title: string;
+  /** When set (oblast view), territory chart uses this oblast’s control series. */
+  oblast?: OblastKey;
 }
 
 export function ChartSection({
@@ -20,6 +22,7 @@ export function ChartSection({
   yearlySnapshotData,
   selectedDate,
   title,
+  oblast,
 }: ChartSectionProps) {
   const [timeRange, setTimeRange] = useState<TimeRange>('monthly');
 
@@ -49,6 +52,7 @@ export function ChartSection({
         yearlySnapshotData={yearlySnapshotData}
         selectedDate={selectedDate}
         timeRange={timeRange}
+        oblast={oblast}
       />
     </div>
   );
