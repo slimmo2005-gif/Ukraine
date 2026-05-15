@@ -12,9 +12,14 @@ export function Header() {
               <div className="w-3 h-6 bg-ukraine-blue rounded-l"></div>
               <div className="w-3 h-6 bg-ukraine-yellow rounded-r"></div>
             </div>
-            <h1 className="text-xl font-bold text-white tracking-tight">
-              Ukraine War
-              <span className="text-gray-400 font-normal"> Territory Tracker</span>
+            <h1 className="text-xl font-bold text-white tracking-tight flex items-center gap-2 flex-wrap">
+              <span>
+                Ukraine War
+                <span className="text-gray-400 font-normal"> Territory Tracker</span>
+              </span>
+              <span className="inline-flex items-center rounded-md border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-amber-300">
+                Beta
+              </span>
             </h1>
           </div>
 

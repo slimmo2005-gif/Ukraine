@@ -13,7 +13,6 @@ import { Header } from '@/components/Header';
 import { DeepStateAttribution } from '@/components/DeepStateAttribution';
 import { ChartSection } from '@/components/ChartSection';
 import { MonthlyComparisonChart } from '@/components/MonthlyComparisonChart';
-import { DataSourceSelector } from '@/components/DataSourceSelector';
 import { ViewLevelToggle } from '@/components/ViewLevelToggle';
 import { MarimekkoChart, OblastGridView } from '@/components/MarimekkoChart';
 import { OBLAST_NAMES } from '@/data/mockData';
@@ -31,7 +30,7 @@ import {
   type OblastRussianChangePeriod,
   type NetMovementDeltaMode,
 } from '@/utils/calculations';
-import type { DataSource, ViewLevel, OblastKey, DailyTerritoryData } from '@/types';
+import type { ViewLevel, OblastKey, DailyTerritoryData } from '@/types';
 import { mapPool } from '@/utils/parallelFetch';
 
 /** Parallel raw JSON fetches; bounded to avoid browser connection limits and GitHub throttling. */
@@ -238,7 +237,7 @@ function getDateDaysAgo(days: number): Date {
  * Main App Component - Ukraine War Territory Tracker Dashboard
  * 
  * Features:
- * - Multi-source data tracking (DeepState, ISW, Combined)
+ * - Territory data from DeepStateMap (GitHub snapshots)
  * - Total Ukraine or Oblast-level view
  * - Russian/Ukrainian/Disputed territory control display
  * - Historical control tracking over time
@@ -321,7 +320,6 @@ function renderNetMovementBarValueLabel(rows: NetMovementBarRow[], deltaMode: Ne
 
 function App() {
   // State
-  const [dataSource, setDataSource] = useState<DataSource>('deepstate');
   const [viewLevel, setViewLevel] = useState<ViewLevel>('total');
   const [selectedOblast, setSelectedOblast] = useState<OblastKey>('donetsk');
   const [historicalData, setHistoricalData] = useState<DailyTerritoryData[]>([]);
@@ -710,10 +708,10 @@ function App() {
         <section className="mb-6">
           <div className="bg-osint-card rounded-lg p-4 border border-osint-border">
             <div className="flex flex-col lg:flex-row gap-6 items-start lg:items-center justify-between">
-              <DataSourceSelector
-                selectedSource={dataSource}
-                onSourceChange={setDataSource}
-              />
+              <p className="text-sm text-gray-400">
+                Data source:{' '}
+                <span className="font-medium text-white">DeepStateMap</span>
+              </p>
               <ViewLevelToggle
                 viewLevel={viewLevel}
                 selectedOblast={selectedOblast}
@@ -1294,11 +1292,13 @@ function App() {
               yearlySnapshotData={yearlySnapshotData}
               selectedDate={selectedDate || latestAvailableDate}
               title="Territory Control Over Time"
+              oblast={viewLevel === 'oblast' ? selectedOblast : undefined}
             />
             <MonthlyComparisonChart
               fullDailyData={currentData}
               weeklySnapshotData={weeklySnapshotData}
               selectedDate={selectedDate || latestAvailableDate}
+              oblast={viewLevel === 'oblast' ? selectedOblast : undefined}
             />
           </div>
         </section>
@@ -1322,7 +1322,7 @@ function App() {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
               <p className="text-sm text-gray-400">
-                Data Source: {dataSource === 'deepstate' ? 'DeepStateMap' : dataSource === 'isw' ? 'Institute for the Study of War' : 'Combined (Averaged)'}
+                Data Source: DeepStateMap
               </p>
               <p className="text-xs text-gray-500 mt-2 max-w-xl leading-relaxed">
                 DeepState / DeepStateMap:{' '}
