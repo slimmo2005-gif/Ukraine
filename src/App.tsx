@@ -10,6 +10,9 @@ import {
   Cell,
 } from 'recharts';
 import { Header } from '@/components/Header';
+import { PipelineInfoModal } from '@/components/PipelineInfoModal';
+import { AdminAnalytics } from '@/components/AdminAnalytics';
+import { logPageSessionVisit } from '@/lib/analytics';
 import { DeepStateAttribution } from '@/components/DeepStateAttribution';
 import { ChartSection } from '@/components/ChartSection';
 import { MonthlyComparisonChart } from '@/components/MonthlyComparisonChart';
@@ -318,7 +321,27 @@ function renderNetMovementBarValueLabel(rows: NetMovementBarRow[], deltaMode: Ne
   };
 }
 
+function useHashRoute(): string {
+  const [hash, setHash] = useState(() => window.location.hash.replace(/^#\/?/, '').toLowerCase());
+  useEffect(() => {
+    const onHash = () => setHash(window.location.hash.replace(/^#\/?/, '').toLowerCase());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  return hash;
+}
+
 function App() {
+  const hashRoute = useHashRoute();
+  const isAdminRoute = hashRoute === 'admin';
+  const [showPipelineInfo, setShowPipelineInfo] = useState(false);
+
+  useEffect(() => {
+    if (!isAdminRoute) {
+      logPageSessionVisit();
+    }
+  }, [isAdminRoute]);
+
   // State
   const [viewLevel, setViewLevel] = useState<ViewLevel>('total');
   const [selectedOblast, setSelectedOblast] = useState<OblastKey>('donetsk');
@@ -635,9 +658,27 @@ function App() {
     return warnings.slice(0, 5);
   }, [todayData]);
 
+  if (isAdminRoute) {
+    return (
+      <div className="min-h-screen bg-osint-dark text-white">
+        <header className="bg-osint-card border-b border-osint-border">
+          <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
+            <a href="#" className="text-sm text-ukraine-blue hover:underline">
+              ← Back to dashboard
+            </a>
+            <span className="text-xs text-gray-500">Visitor analytics (private)</span>
+          </div>
+        </header>
+        <main className="max-w-7xl mx-auto px-4 py-8">
+          <AdminAnalytics onClose={() => { window.location.hash = ''; }} embedded />
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-osint-dark text-white">
-      <Header />
+      <Header onInfoClick={() => setShowPipelineInfo(true)} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <DeepStateAttribution />
@@ -1379,6 +1420,8 @@ function App() {
           </>
         )}
       </main>
+
+      {showPipelineInfo && <PipelineInfoModal onClose={() => setShowPipelineInfo(false)} />}
 
       {showHistoryHelp && (
         <div

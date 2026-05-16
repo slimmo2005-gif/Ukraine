@@ -38,6 +38,9 @@ jobs:
         run: npm ci
 
       - name: Build
+        env:
+          # Public worker URL (no trailing slash). Override via repo secret VITE_ANALYTICS_API_URL if needed.
+          VITE_ANALYTICS_API_URL: https://ukraine-territory-analytics.slimmo2005-gif.workers.dev
         run: npm run build
 
       - name: Setup Pages

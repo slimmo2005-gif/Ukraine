@@ -1,0 +1,43 @@
+Analytics worker (Cloudflare Workers + D1)
+=========================================
+
+Why: GitHub Pages cannot log visitors or resolve country. This worker runs on
+Cloudflare and receives POST /visit from the app; country comes from the
+CF-IPCountry header (only present when traffic hits Cloudflare).
+
+1) Install wrangler (from repo root): npm i -g wrangler && wrangler login
+
+2) Create D1 database:
+   cd workers/analytics-worker
+   npx wrangler d1 create ukraine-visits
+   Copy database_id into wrangler.toml (replace REPLACE_WITH_YOUR_D1_DATABASE_ID).
+
+3) Apply schema (remote):
+   npx wrangler d1 execute ukraine-visits --remote --file=schema.sql
+
+4) Set admin password (must match what you type on the #admin page — never commit this):
+   npx wrangler secret put ADMIN_PASSWORD
+   (Enter your chosen password when prompted, e.g. the one you use in the Admin UI.)
+
+5) Deploy:
+   npx wrangler deploy
+
+6) Point the static site at the worker (build-time env var):
+
+   GitHub Actions: add a repository secret named VITE_ANALYTICS_API_URL whose value is
+   https://ukraine-territory-analytics.slimmo2005-gif.workers.dev (no trailing slash). The deploy workflow
+   passes it into npm run build.
+
+   Local: create .env.local with:
+   VITE_ANALYTICS_API_URL=https://ukraine-territory-analytics.slimmo2005-gif.workers.dev
+
+   Rebuild / push so the client bundle includes this URL.
+
+7) Open the app with hash #admin (or use the Admin link) and sign in with the
+   same password you set in step 4.
+
+Notes
+-----
+- Session = one random UUID per browser tab session (sessionStorage); first
+  successful POST counts as one session.
+- Password must never be committed in wrangler.toml for production; use secrets.
