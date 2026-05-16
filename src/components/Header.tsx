@@ -44,13 +44,23 @@ export function Header({ onInfoClick }: HeaderProps) {
               <button
                 type="button"
                 onClick={onInfoClick}
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-osint-border bg-osint-dark text-gray-300 hover:text-white hover:border-ukraine-blue/50 focus:outline-none focus:ring-2 focus:ring-ukraine-blue/40"
+                className="flex h-11 w-11 sm:h-12 sm:w-12 items-center justify-center rounded-full border-2 border-ukraine-blue/60 bg-ukraine-blue/15 text-ukraine-blue shadow-[0_0_12px_rgba(59,130,246,0.25)] hover:bg-ukraine-blue/25 hover:text-white hover:border-ukraine-blue focus:outline-none focus:ring-2 focus:ring-ukraine-blue/60 focus:ring-offset-2 focus:ring-offset-osint-card"
                 aria-label="How this data works"
                 title="How this data works"
               >
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" aria-hidden>
-                  <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.75" />
-                  <path stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" d="M12 11v5M12 8h.01" />
+                <svg className="h-7 w-7 sm:h-8 sm:w-8" viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
+                  <text
+                    x="12"
+                    y="16.5"
+                    textAnchor="middle"
+                    fill="currentColor"
+                    fontSize="14"
+                    fontWeight="700"
+                    fontFamily="Georgia, 'Times New Roman', serif"
+                  >
+                    i
+                  </text>
                 </svg>
               </button>
             )}

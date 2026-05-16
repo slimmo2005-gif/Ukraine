@@ -7,7 +7,7 @@ compatibility_date = "2024-11-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "ukraine-visits"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "bd670903-fda1-4116-b39b-62a0879d46e2"
 
 # Production: wrangler secret put ADMIN_PASSWORD
 # Local dev (optional): uncomment and set for wrangler dev only — do not commit real passwords.

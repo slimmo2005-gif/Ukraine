@@ -40,7 +40,7 @@ export function AdminAnalytics({ onClose, embedded = false }: Props) {
       }
       setStats(result);
     } catch {
-      setError('Request failed. Check the API URL and your connection.');
+      setError('Could not reach the analytics server. Check your connection.');
     } finally {
       setLoading(false);
     }

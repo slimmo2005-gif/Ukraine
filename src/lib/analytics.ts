@@ -53,16 +53,28 @@ export async function fetchAdminStats(password: string): Promise<AdminStatsRespo
   if (!base) {
     return { ok: false, error: 'Analytics API URL is not configured (VITE_ANALYTICS_API_URL).' };
   }
-  const res = await fetch(`${base}/admin/stats`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${base}/admin/stats`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+  } catch {
+    return {
+      ok: false,
+      error:
+        'Could not reach the analytics server. The worker may be down or D1 may need setup — see workers/analytics-worker/SETUP.txt.',
+    };
+  }
   let data: AdminStatsResponse & { error?: string };
   try {
     data = (await res.json()) as AdminStatsResponse & { error?: string };
   } catch {
-    return { ok: false, error: `Invalid response (HTTP ${res.status})` };
+    return {
+      ok: false,
+      error: `Analytics server error (HTTP ${res.status}). Database may not be configured on the worker.`,
+    };
   }
   if (!data.ok) {
     return { ok: false, error: data.error || `HTTP ${res.status}` };
