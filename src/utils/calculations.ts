@@ -9,6 +9,7 @@ import type {
 } from '@/types';
 import {
   formatWeekEndingLabel,
+  getSaturdayWeekEndDates,
   getSaturdayWeekWindow,
   parseLocalDateKey,
   formatLocalDateKey,
@@ -2073,6 +2074,73 @@ export function buildWeeklyHistoryNetSegments(
 }
 
 /**
+ * Sun–Sat week bars from daily snapshots (same logic as Territory Breakdown week deltas).
+ * Each bar is the change from Sunday through Saturday (or through the viewed date for the current week).
+ */
+export function getSaturdayWeekNetMovementRows(
+  data: DailyTerritoryData[],
+  selectedDate: string,
+  oblast: OblastKey | undefined,
+  maxBars: number,
+  deltaMode: NetMovementDeltaMode,
+): NetMovementBarRow[] {
+  const endIndex = data.length - 1;
+  if (endIndex < 0 || !selectedDate) {
+    return [];
+  }
+
+  const weekEnds = getSaturdayWeekEndDates(selectedDate, maxBars);
+  const out: NetMovementBarRow[] = [];
+
+  for (const weekEndKey of weekEnds) {
+    const win = getSaturdayWeekWindow(weekEndKey);
+    if (selectedDate < win.weekStart) {
+      out.push({
+        periodLabel: formatDate(weekEndKey),
+        netKm2: 0,
+        fullNet: null,
+        pct: null,
+        hasData: false,
+      });
+      continue;
+    }
+
+    const periodEnd = selectedDate >= win.weekEnd ? win.weekEnd : selectedDate;
+    const startIdx = findIndexOnOrBefore(data, win.weekStart, endIndex);
+    const endIdx = findIndexOnOrBefore(data, periodEnd, endIndex);
+
+    if (startIdx < 0 || endIdx < 0) {
+      out.push({
+        periodLabel: formatDate(weekEndKey),
+        netKm2: 0,
+        fullNet: null,
+        pct: null,
+        hasData: false,
+      });
+      continue;
+    }
+
+    const start = data[startIdx];
+    const end = data[endIdx];
+    const netKm2 = pairDelta(start, end, deltaMode, oblast);
+    const totalUkraine = Math.max(end.total_area_km2, 1);
+    const periodLabel =
+      periodEnd < win.weekEnd ? `→ ${formatDate(periodEnd)}` : formatDate(weekEndKey);
+
+    out.push({
+      periodLabel,
+      netKm2,
+      fullNet: netKm2,
+      pct: (netKm2 / totalUkraine) * 100,
+      hasData: true,
+      tooltipNote: `Sun ${win.weekStart.slice(5)} → ${periodEnd.slice(5)} (week ending ${formatDate(weekEndKey)})`,
+    });
+  }
+
+  return out;
+}
+
+/**
  * Territory-change bars from `data/history/weekly` anchors (WoW), optionally ending with a segment
  * to the viewed date via linear interpolation/extrapolation between nearest anchors.
  */
@@ -2110,19 +2178,6 @@ export function getWeeklyHistoryNetMovementRows(
   }
 
   return out;
-}
-
-function weekBucketKeyFromDateString(dateStr: string): string {
-  const d = parseLocalDateKey(dateStr);
-  const y = d.getFullYear();
-  const w = getWeekNumber(d);
-  return `${y}-W${String(w).padStart(2, '0')}`;
-}
-
-function formatWeekAxisLabel(weekKey: string): string {
-  const m = weekKey.match(/^(\d{4})-W(\d{2})$/);
-  if (!m) return weekKey;
-  return `W${Number(m[2])} '${m[1].slice(-2)}`;
 }
 
 function getYoYNetMovementRowsFromWeekly(
@@ -2226,7 +2281,7 @@ function getCalendarYearNetMovementFromDaily(
 
 /**
  * Bars for territory controlled-area change: either Δ Russian or Δ Ukrainian per step (national or oblast).
- * Day: last 14 snapshots vs previous. Week: weekly JSON (WoW) when provided, else ISO weeks from dailies.
+ * Day: last 14 snapshots vs previous. Week: Sun–Sat weeks ending Saturday from dailies (matches summary).
  * Month: six completed calendar months. Year: yearly JSON (YoY) when provided, else YoY from weekly
  * year-end anchors, else last six calendar years from dailies.
  */
@@ -2270,47 +2325,11 @@ export function getNetMovementChartRows(
   }
 
   if (period === 'week') {
-    const weekly = options?.weeklySnapshots;
-    if (weekly && weekly.length >= 2) {
-      const sel = options?.selectedDate ?? data[data.length - 1]?.date ?? '';
-      const fromRepo = getWeeklyHistoryNetMovementRows(weekly, sel, oblast, 6, mode);
-      if (fromRepo.length > 0) {
-        return fromRepo;
-      }
+    const sel = options?.selectedDate ?? data[data.length - 1]?.date ?? '';
+    if (sel) {
+      return getSaturdayWeekNetMovementRows(data, sel, oblast, 6, mode);
     }
-
-    const weekKeySet = new Set<string>();
-    for (const d of data) {
-      weekKeySet.add(weekBucketKeyFromDateString(d.date));
-    }
-    const weekKeys = [...weekKeySet].sort();
-    const lastWeeks = weekKeys.slice(-6);
-    const out: NetMovementBarRow[] = [];
-    for (const wk of lastWeeks) {
-      const inWeek = data.filter((d) => weekBucketKeyFromDateString(d.date) === wk);
-      if (inWeek.length >= 2) {
-        const a = inWeek[0];
-        const b = inWeek[inWeek.length - 1];
-        const netKm2 = pairDelta(a, b, mode, oblast);
-        const totalUkraine = Math.max(b.total_area_km2, 1);
-        out.push({
-          periodLabel: formatWeekAxisLabel(wk),
-          netKm2: netKm2,
-          fullNet: netKm2,
-          pct: (netKm2 / totalUkraine) * 100,
-          hasData: true,
-        });
-      } else {
-        out.push({
-          periodLabel: formatWeekAxisLabel(wk),
-          netKm2: 0,
-          fullNet: null,
-          pct: null,
-          hasData: false,
-        });
-      }
-    }
-    return out;
+    return [];
   }
 
   if (period === 'month') {

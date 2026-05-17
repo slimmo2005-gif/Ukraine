@@ -951,9 +951,11 @@ function App() {
                               </span>
                               <select
                                 value={netMovementPeriod}
-                                onChange={(e) =>
-                                  setNetMovementPeriod(e.target.value as OblastRussianChangePeriod)
-                                }
+                                onChange={(e) => {
+                                  const period = e.target.value as OblastRussianChangePeriod;
+                                  setNetMovementPeriod(period);
+                                  setOblastRussianChangePeriod(period);
+                                }}
                                 className="min-w-[7.5rem] bg-osint-dark border border-osint-border rounded-md px-2 py-1 text-xs text-white focus:outline-none focus:ring-2 focus:ring-ukraine-blue/40"
                                 aria-label="Area change time range"
                               >
@@ -1121,22 +1123,25 @@ function App() {
                       </span>
                       <select
                         value={oblastRussianChangePeriod}
-                        onChange={(e) =>
-                          setOblastRussianChangePeriod(e.target.value as OblastRussianChangePeriod)
-                        }
+                        onChange={(e) => {
+                          const period = e.target.value as OblastRussianChangePeriod;
+                          setOblastRussianChangePeriod(period);
+                          setNetMovementPeriod(period);
+                        }}
                         title="Period for Russian Δ column"
                         className="max-w-[11rem] bg-osint-dark border border-osint-border rounded-md px-2 py-1 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-ukraine-blue/40"
                         aria-label="Period for oblast Russian delta"
                       >
                         <option value="day">Day</option>
-                        <option value="week">Week (~7d)</option>
+                        <option value="week">Week (Sun–Sat)</option>
                         <option value="month">Month (~30d)</option>
                         <option value="year">Year (~365d)</option>
                       </select>
                     </label>
                     <p className="text-[9px] text-gray-600 text-left sm:text-right leading-tight max-w-[18rem]">
                       {oblastRussianChangePeriod === 'day' && 'Previous available snapshot.'}
-                      {oblastRussianChangePeriod === 'week' && 'Earliest snapshot on or after 7 days before viewed date.'}
+                      {oblastRussianChangePeriod === 'week' &&
+                        'Sun–Sat week ending Saturday (same period as Territory Breakdown week view).'}
                       {oblastRussianChangePeriod === 'month' && 'Earliest snapshot on or after 30 days before viewed date.'}
                       {oblastRussianChangePeriod === 'year' &&
                         (yearlySnapshotData.length > 0

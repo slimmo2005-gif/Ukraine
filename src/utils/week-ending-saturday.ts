@@ -50,6 +50,20 @@ export function getSaturdayWeekWindow(selectedDate: string): SaturdayWeekWindow 
   };
 }
 
+/** Chronological list of Saturday week-ending dates (oldest first), ending with the week containing `selectedDate`. */
+export function getSaturdayWeekEndDates(selectedDate: string, count: number): string[] {
+  const { weekEnd } = getSaturdayWeekWindow(selectedDate);
+  const ends: string[] = [];
+  let d = parseLocalDateKey(weekEnd);
+  for (let i = 0; i < count; i++) {
+    ends.unshift(formatLocalDateKey(d));
+    const prev = new Date(d);
+    prev.setDate(prev.getDate() - 7);
+    d = prev;
+  }
+  return ends;
+}
+
 export function formatWeekEndingLabel(weekEndKey: string): string {
   const d = parseLocalDateKey(weekEndKey);
   return d.toLocaleDateString('en-US', {
