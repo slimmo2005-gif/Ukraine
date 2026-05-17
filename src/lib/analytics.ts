@@ -86,3 +86,83 @@ export async function fetchAdminStats(password: string): Promise<AdminStatsRespo
     byDay: data.byDay ?? [],
   };
 }
+
+export type FeedbackSubmitResult = { ok: true } | { ok: false; error: string };
+
+export async function submitFeedback(payload: {
+  message: string;
+  contactEmail?: string;
+  contactWhatsapp?: string;
+  contactDiscord?: string;
+}): Promise<FeedbackSubmitResult> {
+  const base = getAnalyticsBaseUrl();
+  if (!base) {
+    return { ok: false, error: 'Feedback is not configured on this deployment.' };
+  }
+  let res: Response;
+  try {
+    res = await fetch(`${base}/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    return { ok: false, error: 'Could not reach the feedback server.' };
+  }
+  let data: { ok?: boolean; error?: string };
+  try {
+    data = (await res.json()) as { ok?: boolean; error?: string };
+  } catch {
+    return { ok: false, error: `Invalid response (HTTP ${res.status})` };
+  }
+  if (!data.ok) {
+    return { ok: false, error: data.error || `HTTP ${res.status}` };
+  }
+  return { ok: true };
+}
+
+export type FeedbackItem = {
+  id: number;
+  message: string;
+  contactEmail: string;
+  contactWhatsapp: string;
+  contactDiscord: string;
+  wordCount: number;
+  day: string;
+  createdAt: string;
+};
+
+export type AdminFeedbackResponse =
+  | { ok: true; total: number; byDay: { day: string; items: FeedbackItem[] }[] }
+  | { ok: false; error: string };
+
+export async function fetchAdminFeedback(password: string): Promise<AdminFeedbackResponse> {
+  const base = getAnalyticsBaseUrl();
+  if (!base) {
+    return { ok: false, error: 'Analytics API URL is not configured.' };
+  }
+  let res: Response;
+  try {
+    res = await fetch(`${base}/admin/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+  } catch {
+    return { ok: false, error: 'Could not reach the feedback server.' };
+  }
+  let data: AdminFeedbackResponse & { error?: string };
+  try {
+    data = (await res.json()) as AdminFeedbackResponse & { error?: string };
+  } catch {
+    return { ok: false, error: `Invalid response (HTTP ${res.status})` };
+  }
+  if (!data.ok) {
+    return { ok: false, error: data.error || `HTTP ${res.status}` };
+  }
+  return {
+    ok: true,
+    total: data.total ?? 0,
+    byDay: data.byDay ?? [],
+  };
+}

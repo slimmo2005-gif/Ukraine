@@ -7,6 +7,12 @@ import type {
   OblastControl,
   ViewLevel,
 } from '@/types';
+import {
+  formatWeekEndingLabel,
+  getSaturdayWeekWindow,
+  parseLocalDateKey,
+  formatLocalDateKey,
+} from '@/utils/week-ending-saturday';
 
 function getDerivedTotalChanges(data: DailyTerritoryData[], index: number) {
   const day = data[index];
@@ -1055,25 +1061,6 @@ export function getCurrentControlTotals(data: DailyTerritoryData[]) {
   };
 }
 
-function parseLocalDateKey(dateKey: string): Date {
-  const isoDateOnlyMatch = dateKey.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (isoDateOnlyMatch) {
-    return new Date(
-      Number(isoDateOnlyMatch[1]),
-      Number(isoDateOnlyMatch[2]) - 1,
-      Number(isoDateOnlyMatch[3]),
-    );
-  }
-  return new Date(dateKey);
-}
-
-function formatLocalDateKey(d: Date): string {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
 function getNationalDeltaWindowed(
   data: DailyTerritoryData[],
   endIndex: number,
@@ -1148,13 +1135,6 @@ function snapshotsOnOrBefore(
   return snapshots.filter((w) => w.date <= selectedDate).sort((a, b) => a.date.localeCompare(b.date));
 }
 
-function weeklyAnchorsOnOrBefore(
-  weeklySnapshots: DailyTerritoryData[],
-  selectedDate: string,
-): DailyTerritoryData[] {
-  return snapshotsOnOrBefore(weeklySnapshots, selectedDate);
-}
-
 function yearlyAnchorsOnOrBefore(
   yearlySnapshots: DailyTerritoryData[],
   selectedDate: string,
@@ -1209,6 +1189,104 @@ export interface SummaryDeltaLine {
   ukrainianChange: number;
   disputedChange: number;
   compareSuffix: string;
+  /** Week view: heading with Saturday week-ending date. */
+  weekPeriodLabel?: string;
+  /** Week view: calendar days Sun → selected day (max 7). */
+  weekDaysIncluded?: number;
+}
+
+function findIndexOnOrBefore(data: DailyTerritoryData[], dateKey: string, maxIndex: number): number {
+  let idx = -1;
+  for (let i = 0; i <= maxIndex && i < data.length; i++) {
+    if (data[i].date <= dateKey) {
+      idx = i;
+    }
+  }
+  return idx;
+}
+
+function getNationalDeltaSaturdayWeek(
+  data: DailyTerritoryData[],
+  selectedDate: string,
+  endIndex: number,
+): SummaryDeltaLine {
+  const win = getSaturdayWeekWindow(selectedDate);
+  const weekLabel = `Week ending ${formatWeekEndingLabel(win.weekEnd)}`;
+
+  const startIdx = findIndexOnOrBefore(data, win.weekStart, endIndex);
+  const endIdx = findIndexOnOrBefore(data, win.periodEnd, endIndex);
+
+  if (startIdx < 0 || endIdx < 0) {
+    return {
+      russianChange: 0,
+      ukrainianChange: 0,
+      disputedChange: 0,
+      compareSuffix: 'no snapshots in this week',
+      weekPeriodLabel: weekLabel,
+      weekDaysIncluded: win.daysIncluded,
+    };
+  }
+
+  const start = data[startIdx];
+  const end = data[endIdx];
+  const r0 = start.total_russian_controlled_km2;
+  const r1 = end.total_russian_controlled_km2;
+  const u0 = start.total_area_km2 - r0 - start.total_disputed_km2;
+  const u1 = end.total_area_km2 - r1 - end.total_disputed_km2;
+
+  const compareSuffix =
+    startIdx === endIdx
+      ? 'single snapshot in period'
+      : `Sun ${win.weekStart.slice(5)} → ${win.periodEnd.slice(5)}`;
+
+  return {
+    russianChange: r1 - r0,
+    ukrainianChange: u1 - u0,
+    disputedChange: end.total_disputed_km2 - start.total_disputed_km2,
+    compareSuffix,
+    weekPeriodLabel: weekLabel,
+    weekDaysIncluded: win.daysIncluded,
+  };
+}
+
+function getOblastDeltaSaturdayWeek(
+  data: DailyTerritoryData[],
+  selectedDate: string,
+  endIndex: number,
+  oblast: OblastKey,
+): SummaryDeltaLine {
+  const win = getSaturdayWeekWindow(selectedDate);
+  const weekLabel = `Week ending ${formatWeekEndingLabel(win.weekEnd)}`;
+
+  const startIdx = findIndexOnOrBefore(data, win.weekStart, endIndex);
+  const endIdx = findIndexOnOrBefore(data, win.periodEnd, endIndex);
+
+  if (startIdx < 0 || endIdx < 0) {
+    return {
+      russianChange: 0,
+      ukrainianChange: 0,
+      disputedChange: 0,
+      compareSuffix: 'no snapshots in this week',
+      weekPeriodLabel: weekLabel,
+      weekDaysIncluded: win.daysIncluded,
+    };
+  }
+
+  const startRow = data[startIdx].oblasts.find((o) => o.oblast === oblast);
+  const endRow = data[endIdx].oblasts.find((o) => o.oblast === oblast);
+  const compareSuffix =
+    startIdx === endIdx
+      ? 'single snapshot in period'
+      : `Sun ${win.weekStart.slice(5)} → ${win.periodEnd.slice(5)}`;
+
+  return {
+    russianChange: (endRow?.russian_controlled_km2 ?? 0) - (startRow?.russian_controlled_km2 ?? 0),
+    ukrainianChange: (endRow?.ukrainian_controlled_km2 ?? 0) - (startRow?.ukrainian_controlled_km2 ?? 0),
+    disputedChange: (endRow?.disputed_controlled_km2 ?? 0) - (startRow?.disputed_controlled_km2 ?? 0),
+    compareSuffix,
+    weekPeriodLabel: weekLabel,
+    weekDaysIncluded: win.daysIncluded,
+  };
 }
 
 export function getSummaryDeltasNational(
@@ -1243,33 +1321,8 @@ export function getSummaryDeltasNational(
     return { russianChange, ukrainianChange, disputedChange, compareSuffix };
   }
 
-  if (period === 'week' && weeklySnapshots.length > 0) {
-    const anchors = weeklyAnchorsOnOrBefore(weeklySnapshots, selectedDate);
-    if (anchors.length === 0) {
-      const w = getNationalDeltaWindowed(dataUpToSelected, endIndex, 7);
-      return {
-        ...w,
-        compareSuffix: '~7 days (no weekly anchor on or before this date)',
-      };
-    }
-    const latest = anchors[anchors.length - 1];
-    const prev = anchors.length >= 2 ? anchors[anchors.length - 2] : null;
-    return {
-      russianChange: latest.russian_change_km2 ?? 0,
-      ukrainianChange: latest.ukrainian_change_km2 ?? 0,
-      disputedChange: latest.disputed_change_km2 ?? 0,
-      compareSuffix: prev
-        ? `WoW vs ${prev.date} (weekly anchor ${latest.date})`
-        : `first weekly anchor (${latest.date})`,
-    };
-  }
-
   if (period === 'week') {
-    const w = getNationalDeltaWindowed(dataUpToSelected, endIndex, 7);
-    return {
-      ...w,
-      compareSuffix: '~7 days (first snapshot in window)',
-    };
+    return getNationalDeltaSaturdayWeek(dataUpToSelected, selectedDate, endIndex);
   }
 
   if (period === 'month') {
@@ -1359,34 +1412,8 @@ export function getSummaryDeltasOblast(
     return { russianChange, ukrainianChange, disputedChange, compareSuffix };
   }
 
-  if (period === 'week' && weeklySnapshots.length > 0) {
-    const anchors = weeklyAnchorsOnOrBefore(weeklySnapshots, selectedDate);
-    if (anchors.length === 0) {
-      const w = getOblastDeltaWindowed(dataUpToSelected, endIndex, oblast, 7);
-      return {
-        ...w,
-        compareSuffix: '~7 days (no weekly anchor on or before this date)',
-      };
-    }
-    const latest = anchors[anchors.length - 1];
-    const prev = anchors.length >= 2 ? anchors[anchors.length - 2] : null;
-    const row = latest.oblasts.find((o) => o.oblast === oblast);
-    return {
-      russianChange: row?.russian_change_km2 ?? 0,
-      ukrainianChange: row?.ukrainian_change_km2 ?? 0,
-      disputedChange: row?.disputed_change_km2 ?? 0,
-      compareSuffix: prev
-        ? `WoW vs ${prev.date} (weekly ${latest.date})`
-        : `first weekly anchor (${latest.date})`,
-    };
-  }
-
   if (period === 'week') {
-    const w = getOblastDeltaWindowed(dataUpToSelected, endIndex, oblast, 7);
-    return {
-      ...w,
-      compareSuffix: '~7 days (first snapshot in window)',
-    };
+    return getOblastDeltaSaturdayWeek(dataUpToSelected, selectedDate, endIndex, oblast);
   }
 
   if (period === 'month') {
@@ -1505,7 +1532,12 @@ export function getOblastRussianChangeKm2(
     }
   }
 
-  const daysBack = period === 'week' ? 7 : period === 'month' ? 30 : period === 'year' ? 365 : 30;
+  if (period === 'week' && options?.selectedDate) {
+    const line = getOblastDeltaSaturdayWeek(data, options.selectedDate, endIndex, oblast);
+    return line.russianChange;
+  }
+
+  const daysBack = period === 'month' ? 30 : period === 'year' ? 365 : 30;
   const endDay = data[endIndex];
   const endDate = parseLocalDateKey(endDay.date);
   const windowStart = new Date(endDate);

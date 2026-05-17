@@ -3,9 +3,10 @@
  */
 type HeaderProps = {
   onInfoClick?: () => void;
+  onFeedbackClick?: () => void;
 };
 
-export function Header({ onInfoClick }: HeaderProps) {
+export function Header({ onInfoClick, onFeedbackClick }: HeaderProps) {
   return (
     <header className="bg-osint-card border-b border-osint-border sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -40,6 +41,25 @@ export function Header({ onInfoClick }: HeaderProps) {
                 })}
               </span>
             </div>
+            {onFeedbackClick && (
+              <button
+                type="button"
+                onClick={onFeedbackClick}
+                className="hidden sm:inline-flex px-3 py-1.5 text-xs font-medium rounded-md border border-osint-border text-gray-300 hover:text-white hover:border-gray-500 hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-ukraine-blue/50"
+              >
+                Provide feedback
+              </button>
+            )}
+            {onFeedbackClick && (
+              <button
+                type="button"
+                onClick={onFeedbackClick}
+                className="sm:hidden px-2.5 py-1.5 text-[11px] font-medium rounded-md border border-osint-border text-gray-300 hover:text-white"
+                aria-label="Provide feedback"
+              >
+                Feedback
+              </button>
+            )}
             {onInfoClick && (
               <button
                 type="button"

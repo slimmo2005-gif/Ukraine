@@ -11,6 +11,7 @@ import {
 } from 'recharts';
 import { Header } from '@/components/Header';
 import { PipelineInfoModal } from '@/components/PipelineInfoModal';
+import { FeedbackModal } from '@/components/FeedbackModal';
 import { AdminAnalytics } from '@/components/AdminAnalytics';
 import { logPageSessionVisit } from '@/lib/analytics';
 import { DeepStateAttribution } from '@/components/DeepStateAttribution';
@@ -335,6 +336,7 @@ function App() {
   const hashRoute = useHashRoute();
   const isAdminRoute = hashRoute === 'admin';
   const [showPipelineInfo, setShowPipelineInfo] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
 
   useEffect(() => {
     if (!isAdminRoute) {
@@ -678,7 +680,10 @@ function App() {
 
   return (
     <div className="min-h-screen bg-osint-dark text-white">
-      <Header onInfoClick={() => setShowPipelineInfo(true)} />
+      <Header
+        onInfoClick={() => setShowPipelineInfo(true)}
+        onFeedbackClick={() => setShowFeedback(true)}
+      />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <DeepStateAttribution />
@@ -865,18 +870,24 @@ function App() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-osint-card rounded-lg p-6 border border-osint-border">
               <h3 className="text-lg font-semibold text-white mb-1">Territory Breakdown</h3>
+              {netMovementPeriod === 'week' && metrics.deltaLine.weekPeriodLabel && (
+                <p className="text-sm text-gray-300 mb-0.5">{metrics.deltaLine.weekPeriodLabel}</p>
+              )}
+              {netMovementPeriod === 'week' && metrics.deltaLine.weekDaysIncluded != null && (
+                <p className="text-[10px] text-gray-500 mb-2">
+                  {metrics.deltaLine.weekDaysIncluded} day
+                  {metrics.deltaLine.weekDaysIncluded === 1 ? '' : 's'} included (Sun–Sat week)
+                </p>
+              )}
               <p className="text-[11px] text-gray-500 mb-4 leading-snug">
                 Δ lines follow Area change <span className="text-gray-400">View</span> (
                 {netMovementPeriod === 'day'
                   ? 'Day'
                   : netMovementPeriod === 'week'
-                    ? 'Week'
+                    ? 'Week (Sun–Sat, ending Saturday)'
                     : netMovementPeriod === 'month'
                       ? 'Month'
                       : 'Year'}
-                {netMovementPeriod === 'week' && weeklySnapshotData.length > 0
-                  ? ': WoW uses weekly history files when available'
-                  : ''}
                 {netMovementPeriod === 'year' && yearlySnapshotData.length > 0
                   ? ': YoY uses yearly history files when available'
                   : ''}
@@ -1422,6 +1433,7 @@ function App() {
       </main>
 
       {showPipelineInfo && <PipelineInfoModal onClose={() => setShowPipelineInfo(false)} />}
+      {showFeedback && <FeedbackModal onClose={() => setShowFeedback(false)} />}
 
       {showHistoryHelp && (
         <div

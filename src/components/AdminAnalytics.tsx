@@ -1,5 +1,14 @@
 import { useState } from 'react';
-import { fetchAdminStats, getAnalyticsBaseUrl, type AdminStatsResponse } from '@/lib/analytics';
+import {
+  fetchAdminFeedback,
+  fetchAdminStats,
+  getAnalyticsBaseUrl,
+  type AdminFeedbackResponse,
+  type AdminStatsResponse,
+  type FeedbackItem,
+} from '@/lib/analytics';
+
+type AdminTab = 'visitors' | 'feedback';
 
 type Props = {
   onClose: () => void;
@@ -19,26 +28,72 @@ function countryLabel(code: string): string {
   }
 }
 
+function formatFeedbackTime(createdAt: string): string {
+  try {
+    return new Date(createdAt).toLocaleString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return createdAt;
+  }
+}
+
+function FeedbackEntry({ item }: { item: FeedbackItem }) {
+  const contacts = [
+    item.contactEmail && `Email: ${item.contactEmail}`,
+    item.contactWhatsapp && `WhatsApp: ${item.contactWhatsapp}`,
+    item.contactDiscord && `Discord: ${item.contactDiscord}`,
+  ].filter(Boolean);
+
+  return (
+    <article className="rounded border border-osint-border bg-osint-dark/40 p-3 space-y-2">
+      <div className="flex justify-between gap-2 text-[11px] text-gray-500">
+        <span>{formatFeedbackTime(item.createdAt)}</span>
+        <span className="tabular-nums">{item.wordCount} words</span>
+      </div>
+      <p className="text-sm text-gray-200 whitespace-pre-wrap">{item.message}</p>
+      {contacts.length > 0 && (
+        <p className="text-xs text-gray-400">{contacts.join(' · ')}</p>
+      )}
+    </article>
+  );
+}
+
 export function AdminAnalytics({ onClose, embedded = false }: Props) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<AdminTab>('visitors');
   const [stats, setStats] = useState<Extract<AdminStatsResponse, { ok: true }> | null>(null);
+  const [feedback, setFeedback] = useState<Extract<AdminFeedbackResponse, { ok: true }> | null>(null);
 
   const configured = Boolean(getAnalyticsBaseUrl());
+  const loaded = stats !== null || feedback !== null;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setStats(null);
+    setFeedback(null);
     setLoading(true);
     try {
-      const result = await fetchAdminStats(password);
-      if (!result.ok) {
-        setError(result.error);
+      const [statsResult, feedbackResult] = await Promise.all([
+        fetchAdminStats(password),
+        fetchAdminFeedback(password),
+      ]);
+      if (!statsResult.ok) {
+        setError(statsResult.error);
         return;
       }
-      setStats(result);
+      if (!feedbackResult.ok) {
+        setError(feedbackResult.error);
+        return;
+      }
+      setStats(statsResult);
+      setFeedback(feedbackResult);
     } catch {
       setError('Could not reach the analytics server. Check your connection.');
     } finally {
@@ -48,16 +103,16 @@ export function AdminAnalytics({ onClose, embedded = false }: Props) {
 
   const inner = (
       <div
-        className={`w-full bg-osint-card border border-osint-border rounded-lg shadow-xl p-6 ${embedded ? 'max-w-2xl' : 'max-w-lg my-auto'}`}
+        className={`w-full bg-osint-card border border-osint-border rounded-lg shadow-xl p-6 ${embedded ? 'max-w-3xl' : 'max-w-lg my-auto'}`}
         onClick={embedded ? undefined : (e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <h2 id="admin-analytics-title" className="text-lg font-semibold text-white">
-              Visitor analytics
+              Admin
             </h2>
             <p className="text-xs text-gray-500 mt-1">
-              Sessions and country breakdown (requires deployed Cloudflare worker — see{' '}
+              Visitor analytics and user feedback (Cloudflare worker — see{' '}
               <code className="text-gray-400">workers/analytics-worker/SETUP.txt</code>).
             </p>
           </div>
@@ -99,13 +154,40 @@ export function AdminAnalytics({ onClose, embedded = false }: Props) {
             disabled={loading || !password.trim()}
             className="w-full py-2 rounded bg-ukraine-blue text-white text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90"
           >
-            {loading ? 'Loading…' : 'Load statistics'}
+            {loading ? 'Loading…' : 'Load data'}
           </button>
         </form>
 
         {error && <p className="text-sm text-red-400 mt-3">{error}</p>}
 
-        {stats && (
+        {loaded && (
+          <div className="mt-4 flex gap-2 border-b border-osint-border">
+            <button
+              type="button"
+              onClick={() => setTab('visitors')}
+              className={`px-3 py-2 text-xs font-medium border-b-2 -mb-px ${
+                tab === 'visitors'
+                  ? 'border-ukraine-blue text-white'
+                  : 'border-transparent text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              Visitors
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab('feedback')}
+              className={`px-3 py-2 text-xs font-medium border-b-2 -mb-px ${
+                tab === 'feedback'
+                  ? 'border-ukraine-blue text-white'
+                  : 'border-transparent text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              Feedback{feedback ? ` (${feedback.total})` : ''}
+            </button>
+          </div>
+        )}
+
+        {stats && tab === 'visitors' && (
           <div className="mt-5 pt-4 border-t border-osint-border space-y-4">
             <div>
               <p className="text-xs uppercase tracking-wide text-gray-500">Total sessions</p>
@@ -170,6 +252,30 @@ export function AdminAnalytics({ onClose, embedded = false }: Props) {
                 </table>
               </div>
             </div>
+          </div>
+        )}
+
+        {feedback && tab === 'feedback' && (
+          <div className="mt-5 pt-4 border-t border-osint-border space-y-4 max-h-[min(60vh,520px)] overflow-y-auto">
+            {feedback.byDay.length === 0 ? (
+              <p className="text-sm text-gray-500 text-center py-6">No feedback yet.</p>
+            ) : (
+              feedback.byDay.map((group) => (
+                <section key={group.day}>
+                  <h3 className="text-xs uppercase tracking-wide text-gray-500 mb-2 sticky top-0 bg-osint-card py-1">
+                    {group.day}
+                    <span className="text-gray-600 font-normal ml-2">
+                      ({group.items.length} submission{group.items.length === 1 ? '' : 's'})
+                    </span>
+                  </h3>
+                  <div className="space-y-3">
+                    {group.items.map((item) => (
+                      <FeedbackEntry key={item.id} item={item} />
+                    ))}
+                  </div>
+                </section>
+              ))
+            )}
           </div>
         )}
       </div>

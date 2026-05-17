@@ -2,6 +2,8 @@
  * Edge analytics for static hosting (e.g. GitHub Pages).
  * - POST /visit { sessionId } — records one row per browser session (CF-IPCountry).
  * - POST /admin/stats { password } — returns session totals and counts by country.
+ * - POST /feedback { message, contactEmail?, contactWhatsapp?, contactDiscord? }
+ * - POST /admin/feedback { password } — list feedback grouped by date.
  *
  * Deploy: see ../SETUP.txt. Set secret ADMIN_PASSWORD (do not commit real passwords).
  */
@@ -124,6 +126,105 @@ export default {
           byCountry: rows,
           byDay: dayRows,
         });
+      }
+
+      if (path === '/feedback' && request.method === 'POST') {
+        let payload: {
+          message?: string;
+          contactEmail?: string;
+          contactWhatsapp?: string;
+          contactDiscord?: string;
+        };
+        try {
+          payload = (await request.json()) as typeof payload;
+        } catch {
+          return jsonResponse(env, request, 400, { ok: false, error: 'Invalid JSON' });
+        }
+        const message = typeof payload.message === 'string' ? payload.message.trim() : '';
+        if (!message) {
+          return jsonResponse(env, request, 400, { ok: false, error: 'Message is required' });
+        }
+        const words = message.split(/\s+/).filter((w) => w.length > 0);
+        if (words.length > 200) {
+          return jsonResponse(env, request, 400, { ok: false, error: 'Message exceeds 200 words' });
+        }
+        const email =
+          typeof payload.contactEmail === 'string' ? payload.contactEmail.trim().slice(0, 200) : '';
+        const whatsapp =
+          typeof payload.contactWhatsapp === 'string'
+            ? payload.contactWhatsapp.trim().slice(0, 120)
+            : '';
+        const discord =
+          typeof payload.contactDiscord === 'string' ? payload.contactDiscord.trim().slice(0, 120) : '';
+
+        await env.DB.prepare(
+          `INSERT INTO feedback (message, contact_email, contact_whatsapp, contact_discord, word_count)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+          .bind(
+            message,
+            email || null,
+            whatsapp || null,
+            discord || null,
+            words.length,
+          )
+          .run();
+
+        return jsonResponse(env, request, 200, { ok: true });
+      }
+
+      if (path === '/admin/feedback' && request.method === 'POST') {
+        let payload: { password?: string };
+        try {
+          payload = (await request.json()) as { password?: string };
+        } catch {
+          return jsonResponse(env, request, 400, { ok: false, error: 'Invalid JSON' });
+        }
+        const password = typeof payload.password === 'string' ? payload.password : '';
+        const expected = env.ADMIN_PASSWORD || '';
+        if (!expected || password !== expected) {
+          return jsonResponse(env, request, 401, { ok: false, error: 'Unauthorized' });
+        }
+
+        const rows = await env.DB.prepare(
+          `SELECT id, message, contact_email, contact_whatsapp, contact_discord, word_count,
+                  date(created_at) AS day, created_at
+           FROM feedback
+           ORDER BY created_at DESC
+           LIMIT 500`,
+        ).all<{
+          id: number;
+          message: string;
+          contact_email: string | null;
+          contact_whatsapp: string | null;
+          contact_discord: string | null;
+          word_count: number;
+          day: string;
+          created_at: string;
+        }>();
+
+        const items = (rows.results ?? []).map((r) => ({
+          id: r.id,
+          message: r.message,
+          contactEmail: r.contact_email ?? '',
+          contactWhatsapp: r.contact_whatsapp ?? '',
+          contactDiscord: r.contact_discord ?? '',
+          wordCount: r.word_count,
+          day: r.day,
+          createdAt: r.created_at,
+        }));
+
+        const byDayMap = new Map<string, typeof items>();
+        for (const item of items) {
+          const list = byDayMap.get(item.day) ?? [];
+          list.push(item);
+          byDayMap.set(item.day, list);
+        }
+        const byDay = [...byDayMap.entries()]
+          .sort((a, b) => b[0].localeCompare(a[0]))
+          .map(([day, dayItems]) => ({ day, items: dayItems }));
+
+        return jsonResponse(env, request, 200, { ok: true, total: items.length, byDay });
       }
 
       if (path === '/health' && request.method === 'GET') {
