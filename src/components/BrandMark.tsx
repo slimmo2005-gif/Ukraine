@@ -76,6 +76,24 @@ export function BrandHeaderLogo({ className = '' }: BrandHeaderLogoProps) {
   );
 }
 
+type BrandPanelLogoProps = {
+  className?: string;
+};
+
+/** Larger logo for panel headers (Territory Breakdown, charts). */
+export function BrandPanelLogo({ className = '' }: BrandPanelLogoProps) {
+  return (
+    <div className={`flex shrink-0 items-center ${className}`.trim()} title={BRAND_NAME}>
+      <img
+        src={BRAND_LOGO_URL}
+        alt={BRAND_NAME}
+        className="h-10 w-auto max-w-[min(48vw,200px)] object-contain sm:h-11 sm:max-w-[220px]"
+        draggable={false}
+      />
+    </div>
+  );
+}
+
 type BrandFooterMarkProps = {
   className?: string;
 };

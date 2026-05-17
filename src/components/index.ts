@@ -1,6 +1,12 @@
 // Component exports - Barrel file for clean imports
 export { Header } from './Header';
-export { BrandedVisual, BrandWatermark, BrandHeaderLogo, BrandFooterMark } from './BrandMark';
+export {
+  BrandedVisual,
+  BrandWatermark,
+  BrandHeaderLogo,
+  BrandPanelLogo,
+  BrandFooterMark,
+} from './BrandMark';
 export { MetricCard } from './MetricCard';
 export { TimeRangeToggle } from './TimeRangeToggle';
 export { TerritoryChart } from './TerritoryChart';

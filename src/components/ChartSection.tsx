@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { DailyTerritoryData, TimeRange, OblastKey } from '@/types';
 import { TimeRangeToggle } from './TimeRangeToggle';
 import { TerritoryChart } from './TerritoryChart';
-import { BrandedVisual } from '@/components/BrandMark';
+import { BrandedVisual, BrandPanelLogo } from '@/components/BrandMark';
 
 /**
  * ChartSection - Territory control over time with monthly / yearly toggle
@@ -29,9 +29,12 @@ export function ChartSection({
 
   return (
     <div className="bg-osint-card rounded-lg p-6 border border-osint-border">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-        <h3 className="text-lg font-semibold text-white">{title}</h3>
-        <TimeRangeToggle value={timeRange} onChange={setTimeRange} />
+      <div className="flex items-start justify-between gap-4 mb-3">
+        <h3 className="text-lg font-semibold text-white min-w-0">{title}</h3>
+        <div className="flex flex-col items-end gap-2 shrink-0">
+          <BrandPanelLogo />
+          <TimeRangeToggle value={timeRange} onChange={setTimeRange} />
+        </div>
       </div>
       {timeRange === 'monthly' && (
         <p className="text-xs text-gray-500 mb-4 leading-snug">

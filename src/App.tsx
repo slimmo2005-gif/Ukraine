@@ -12,7 +12,7 @@ import {
 import { Header } from '@/components/Header';
 import { PipelineInfoModal } from '@/components/PipelineInfoModal';
 import { FeedbackModal } from '@/components/FeedbackModal';
-import { BrandedVisual, BrandFooterMark } from '@/components/BrandMark';
+import { BrandedVisual, BrandFooterMark, BrandPanelLogo } from '@/components/BrandMark';
 import { AdminAnalytics } from '@/components/AdminAnalytics';
 import { logPageSessionVisit } from '@/lib/analytics';
 import { DeepStateAttribution } from '@/components/DeepStateAttribution';
@@ -870,25 +870,30 @@ function App() {
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-osint-card rounded-lg p-6 border border-osint-border">
-              <h3 className="text-lg font-semibold text-white mb-1">Territory Breakdown</h3>
-              {netMovementPeriod === 'week' && metrics.deltaLine.weekPeriodLabel && (
-                <p className="text-sm text-gray-300 mb-0.5">{metrics.deltaLine.weekPeriodLabel}</p>
-              )}
-              {netMovementPeriod === 'week' && metrics.deltaLine.weekDaysIncluded != null && (
-                <p className="text-[10px] text-gray-500 mb-2">
-                  {metrics.deltaLine.weekDaysIncluded} day
-                  {metrics.deltaLine.weekDaysIncluded === 1 ? '' : 's'} included (Sun–Sat week)
-                </p>
-              )}
-              {netMovementPeriod === 'month' && metrics.deltaLine.monthPeriodLabel && (
-                <p className="text-sm text-gray-300 mb-0.5">{metrics.deltaLine.monthPeriodLabel}</p>
-              )}
-              {netMovementPeriod === 'month' && metrics.deltaLine.monthDaysIncluded != null && (
-                <p className="text-[10px] text-gray-500 mb-2">
-                  {metrics.deltaLine.monthDaysIncluded} day
-                  {metrics.deltaLine.monthDaysIncluded === 1 ? '' : 's'} included (calendar month)
-                </p>
-              )}
+              <div className="flex items-start justify-between gap-4 mb-3">
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-lg font-semibold text-white mb-1">Territory Breakdown</h3>
+                  {netMovementPeriod === 'week' && metrics.deltaLine.weekPeriodLabel && (
+                    <p className="text-sm text-gray-300 mb-0.5">{metrics.deltaLine.weekPeriodLabel}</p>
+                  )}
+                  {netMovementPeriod === 'week' && metrics.deltaLine.weekDaysIncluded != null && (
+                    <p className="text-[10px] text-gray-500">
+                      {metrics.deltaLine.weekDaysIncluded} day
+                      {metrics.deltaLine.weekDaysIncluded === 1 ? '' : 's'} included (Sun–Sat week)
+                    </p>
+                  )}
+                  {netMovementPeriod === 'month' && metrics.deltaLine.monthPeriodLabel && (
+                    <p className="text-sm text-gray-300 mb-0.5">{metrics.deltaLine.monthPeriodLabel}</p>
+                  )}
+                  {netMovementPeriod === 'month' && metrics.deltaLine.monthDaysIncluded != null && (
+                    <p className="text-[10px] text-gray-500">
+                      {metrics.deltaLine.monthDaysIncluded} day
+                      {metrics.deltaLine.monthDaysIncluded === 1 ? '' : 's'} included (calendar month)
+                    </p>
+                  )}
+                </div>
+                <BrandPanelLogo />
+              </div>
               <p className="text-[11px] text-gray-500 mb-4 leading-snug">
                 Δ lines follow Area change <span className="text-gray-400">View</span> (
                 {netMovementPeriod === 'day'
