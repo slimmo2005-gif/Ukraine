@@ -879,6 +879,15 @@ function App() {
                   {metrics.deltaLine.weekDaysIncluded === 1 ? '' : 's'} included (Sun–Sat week)
                 </p>
               )}
+              {netMovementPeriod === 'month' && metrics.deltaLine.monthPeriodLabel && (
+                <p className="text-sm text-gray-300 mb-0.5">{metrics.deltaLine.monthPeriodLabel}</p>
+              )}
+              {netMovementPeriod === 'month' && metrics.deltaLine.monthDaysIncluded != null && (
+                <p className="text-[10px] text-gray-500 mb-2">
+                  {metrics.deltaLine.monthDaysIncluded} day
+                  {metrics.deltaLine.monthDaysIncluded === 1 ? '' : 's'} included (calendar month)
+                </p>
+              )}
               <p className="text-[11px] text-gray-500 mb-4 leading-snug">
                 Δ lines follow Area change <span className="text-gray-400">View</span> (
                 {netMovementPeriod === 'day'
@@ -886,7 +895,7 @@ function App() {
                   : netMovementPeriod === 'week'
                     ? 'Week (Sun–Sat, ending Saturday)'
                     : netMovementPeriod === 'month'
-                      ? 'Month'
+                      ? 'Month (calendar)'
                       : 'Year'}
                 {netMovementPeriod === 'year' && yearlySnapshotData.length > 0
                   ? ': YoY uses yearly history files when available'
@@ -991,11 +1000,9 @@ function App() {
                           {netMovementPeriod === 'day' &&
                             ' Day: last up to 14 snapshots vs previous available snapshot.'}
                           {netMovementPeriod === 'week' &&
-                            (weeklySnapshotData.length >= 2
-                              ? ' Week: weekly history anchors (WoW); tail may use interpolation to your viewed date.'
-                              : ' Week: last 6 ISO weeks with data, first vs last snapshot in each week.')}
+                            ' Week: Sun–Sat weeks ending Saturday; last bar is the week containing your viewed date.'}
                           {netMovementPeriod === 'month' &&
-                            ' Month: six completed calendar months; sparse months may use weekly interpolation at month bounds.'}
+                            ' Month: calendar months; last bar is month-to-date through your viewed date. Sparse months may use weekly interpolation.'}
                           {netMovementPeriod === 'year' &&
                             (yearlySnapshotData.length >= 2
                               ? ' Year: yearly history anchors (YoY); tail may use interpolation to your viewed date.'
@@ -1134,7 +1141,7 @@ function App() {
                       >
                         <option value="day">Day</option>
                         <option value="week">Week (Sun–Sat)</option>
-                        <option value="month">Month (~30d)</option>
+                        <option value="month">Month (calendar)</option>
                         <option value="year">Year (~365d)</option>
                       </select>
                     </label>
@@ -1142,7 +1149,8 @@ function App() {
                       {oblastRussianChangePeriod === 'day' && 'Previous available snapshot.'}
                       {oblastRussianChangePeriod === 'week' &&
                         'Sun–Sat week ending Saturday (same period as Territory Breakdown week view).'}
-                      {oblastRussianChangePeriod === 'month' && 'Earliest snapshot on or after 30 days before viewed date.'}
+                      {oblastRussianChangePeriod === 'month' &&
+                        'Calendar month containing the viewed date (same period as Territory Breakdown month view).'}
                       {oblastRussianChangePeriod === 'year' &&
                         (yearlySnapshotData.length > 0
                           ? 'YoY from yearly history when available; else weekly year-end YoY or ~365d window.'

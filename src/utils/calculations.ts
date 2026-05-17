@@ -1194,6 +1194,10 @@ export interface SummaryDeltaLine {
   weekPeriodLabel?: string;
   /** Week view: calendar days Sun → selected day (max 7). */
   weekDaysIncluded?: number;
+  /** Month view: calendar month containing the viewed date. */
+  monthPeriodLabel?: string;
+  /** Month view: days from the 1st through the viewed date (or full month). */
+  monthDaysIncluded?: number;
 }
 
 function findIndexOnOrBefore(data: DailyTerritoryData[], dateKey: string, maxIndex: number): number {
@@ -1247,6 +1251,120 @@ function getNationalDeltaSaturdayWeek(
     compareSuffix,
     weekPeriodLabel: weekLabel,
     weekDaysIncluded: win.daysIncluded,
+  };
+}
+
+function getCalendarMonthBounds(selectedDate: string): {
+  year: number;
+  month: number;
+  monthStart: string;
+  monthEnd: string;
+  periodEnd: string;
+  isComplete: boolean;
+  daysIncluded: number;
+} {
+  const d = parseLocalDateKey(selectedDate);
+  const year = d.getFullYear();
+  const month = d.getMonth() + 1;
+  const monthStart = firstDayKeyOfMonth(year, month);
+  const monthEnd = lastDayKeyOfMonth(year, month);
+  const periodEnd =
+    selectedDate > monthEnd ? monthEnd : selectedDate < monthStart ? monthStart : selectedDate;
+  const start = parseLocalDateKey(monthStart);
+  const end = parseLocalDateKey(periodEnd);
+  const daysIncluded = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1);
+  return {
+    year,
+    month,
+    monthStart,
+    monthEnd,
+    periodEnd,
+    isComplete: periodEnd === monthEnd,
+    daysIncluded,
+  };
+}
+
+function getNationalDeltaCalendarMonth(
+  data: DailyTerritoryData[],
+  selectedDate: string,
+  endIndex: number,
+): SummaryDeltaLine {
+  const b = getCalendarMonthBounds(selectedDate);
+  const monthLabel = formatCompletedMonthLabel(b.year, b.month);
+
+  const startIdx = findIndexOnOrBefore(data, b.monthStart, endIndex);
+  const endIdx = findIndexOnOrBefore(data, b.periodEnd, endIndex);
+
+  if (startIdx < 0 || endIdx < 0) {
+    return {
+      russianChange: 0,
+      ukrainianChange: 0,
+      disputedChange: 0,
+      compareSuffix: 'no snapshots in this month',
+      monthPeriodLabel: monthLabel,
+      monthDaysIncluded: b.daysIncluded,
+    };
+  }
+
+  const start = data[startIdx];
+  const end = data[endIdx];
+  const r0 = start.total_russian_controlled_km2;
+  const r1 = end.total_russian_controlled_km2;
+  const u0 = start.total_area_km2 - r0 - start.total_disputed_km2;
+  const u1 = end.total_area_km2 - r1 - end.total_disputed_km2;
+
+  const compareSuffix =
+    startIdx === endIdx
+      ? 'single snapshot in period'
+      : `${b.monthStart.slice(5)} → ${b.periodEnd.slice(5)}`;
+
+  return {
+    russianChange: r1 - r0,
+    ukrainianChange: u1 - u0,
+    disputedChange: end.total_disputed_km2 - start.total_disputed_km2,
+    compareSuffix,
+    monthPeriodLabel: monthLabel,
+    monthDaysIncluded: b.daysIncluded,
+  };
+}
+
+function getOblastDeltaCalendarMonth(
+  data: DailyTerritoryData[],
+  selectedDate: string,
+  endIndex: number,
+  oblast: OblastKey,
+): SummaryDeltaLine {
+  const b = getCalendarMonthBounds(selectedDate);
+  const monthLabel = formatCompletedMonthLabel(b.year, b.month);
+
+  const startIdx = findIndexOnOrBefore(data, b.monthStart, endIndex);
+  const endIdx = findIndexOnOrBefore(data, b.periodEnd, endIndex);
+
+  if (startIdx < 0 || endIdx < 0) {
+    return {
+      russianChange: 0,
+      ukrainianChange: 0,
+      disputedChange: 0,
+      compareSuffix: 'no snapshots in this month',
+      monthPeriodLabel: monthLabel,
+      monthDaysIncluded: b.daysIncluded,
+    };
+  }
+
+  const startRow = data[startIdx].oblasts.find((o) => o.oblast === oblast);
+  const endRow = data[endIdx].oblasts.find((o) => o.oblast === oblast);
+  const compareSuffix =
+    startIdx === endIdx
+      ? 'single snapshot in period'
+      : `${b.monthStart.slice(5)} → ${b.periodEnd.slice(5)}`;
+
+  return {
+    russianChange: (endRow?.russian_controlled_km2 ?? 0) - (startRow?.russian_controlled_km2 ?? 0),
+    ukrainianChange: (endRow?.ukrainian_controlled_km2 ?? 0) - (startRow?.ukrainian_controlled_km2 ?? 0),
+    disputedChange: (endRow?.disputed_controlled_km2 ?? 0) - (startRow?.disputed_controlled_km2 ?? 0),
+    compareSuffix,
+    monthPeriodLabel: monthLabel,
+    monthDaysIncluded: b.daysIncluded,
   };
 }
 
@@ -1327,11 +1445,7 @@ export function getSummaryDeltasNational(
   }
 
   if (period === 'month') {
-    const m = getNationalDeltaWindowed(dataUpToSelected, endIndex, 30);
-    return {
-      ...m,
-      compareSuffix: '~30 days (first snapshot in window)',
-    };
+    return getNationalDeltaCalendarMonth(dataUpToSelected, selectedDate, endIndex);
   }
 
   if (period === 'year' && yearlySnapshots.length > 0) {
@@ -1418,11 +1532,7 @@ export function getSummaryDeltasOblast(
   }
 
   if (period === 'month') {
-    const m = getOblastDeltaWindowed(dataUpToSelected, endIndex, oblast, 30);
-    return {
-      ...m,
-      compareSuffix: '~30 days (first snapshot in window)',
-    };
+    return getOblastDeltaCalendarMonth(dataUpToSelected, selectedDate, endIndex, oblast);
   }
 
   if (period === 'year' && yearlySnapshots.length > 0) {
@@ -1538,7 +1648,12 @@ export function getOblastRussianChangeKm2(
     return line.russianChange;
   }
 
-  const daysBack = period === 'month' ? 30 : period === 'year' ? 365 : 30;
+  if (period === 'month' && options?.selectedDate) {
+    const line = getOblastDeltaCalendarMonth(data, options.selectedDate, endIndex, oblast);
+    return line.russianChange;
+  }
+
+  const daysBack = period === 'year' ? 365 : 30;
   const endDay = data[endIndex];
   const endDate = parseLocalDateKey(endDay.date);
   const windowStart = new Date(endDate);
@@ -2140,6 +2255,116 @@ export function getSaturdayWeekNetMovementRows(
   return out;
 }
 
+function formatMonthAxisLabel(year: number, month: number): string {
+  return `${SHORT_MONTH[month - 1]}-${String(year).slice(-2)}`;
+}
+
+/**
+ * Calendar-month bars from daily snapshots (matches Territory Breakdown month deltas).
+ * Last bar is the month containing the viewed date (partial through that date); prior bars are full months.
+ */
+export function getCalendarMonthNetMovementRows(
+  data: DailyTerritoryData[],
+  selectedDate: string,
+  oblast: OblastKey | undefined,
+  maxBars: number,
+  deltaMode: NetMovementDeltaMode,
+  weeklySnapshots?: DailyTerritoryData[],
+): NetMovementBarRow[] {
+  const endIndex = data.length - 1;
+  if (endIndex < 0 || !selectedDate) {
+    return [];
+  }
+
+  const d = parseLocalDateKey(selectedDate);
+  let year = d.getFullYear();
+  let month = d.getMonth() + 1;
+
+  type MonthPeriod = {
+    year: number;
+    month: number;
+    monthStart: string;
+    monthEnd: string;
+    periodEnd: string;
+    isComplete: boolean;
+  };
+
+  const periods: MonthPeriod[] = [];
+  for (let i = 0; i < maxBars; i++) {
+    const monthStart = firstDayKeyOfMonth(year, month);
+    if (selectedDate < monthStart) {
+      break;
+    }
+    const monthEnd = lastDayKeyOfMonth(year, month);
+    const periodEnd = selectedDate >= monthEnd ? monthEnd : selectedDate;
+    periods.unshift({
+      year,
+      month,
+      monthStart,
+      monthEnd,
+      periodEnd,
+      isComplete: periodEnd === monthEnd,
+    });
+    const prev = shiftCalendarMonth(year, month, -1);
+    year = prev.year;
+    month = prev.month;
+  }
+
+  const out: NetMovementBarRow[] = [];
+
+  for (const b of periods) {
+    const startIdx = findIndexOnOrBefore(data, b.monthStart, endIndex);
+    const endIdx = findIndexOnOrBefore(data, b.periodEnd, endIndex);
+    const yy = String(b.year).slice(-2);
+    const partial = !b.isComplete;
+    const periodLabel = partial ? `→ ${SHORT_MONTH[b.month - 1]}-${yy}` : formatMonthAxisLabel(b.year, b.month);
+
+    if (startIdx >= 0 && endIdx >= 0) {
+      const start = data[startIdx];
+      const end = data[endIdx];
+      const netKm2 = pairDelta(start, end, deltaMode, oblast);
+      const totalUkraine = Math.max(end.total_area_km2, 1);
+      out.push({
+        periodLabel,
+        netKm2,
+        fullNet: netKm2,
+        pct: (netKm2 / totalUkraine) * 100,
+        hasData: true,
+        tooltipNote: `Calendar month ${b.monthStart.slice(5)} → ${b.periodEnd.slice(5)}`,
+      });
+      continue;
+    }
+
+    if (weeklySnapshots && weeklySnapshots.length >= 2) {
+      const endClamp = partial ? b.periodEnd : undefined;
+      const bridged = tryMonthNetFromWeekly(weeklySnapshots, b.year, b.month, oblast, endClamp);
+      if (bridged) {
+        const raw = deltaMode === 'ukrainian' ? bridged.ukrainianDeltaKm2 : bridged.russianDeltaKm2;
+        out.push({
+          periodLabel,
+          netKm2: raw,
+          fullNet: raw,
+          pct: (raw / bridged.areaDenominatorKm2) * 100,
+          hasData: true,
+          tooltipNote:
+            'Estimated from weekly history at month start vs end (fewer than 2 daily snapshots in this month).',
+        });
+        continue;
+      }
+    }
+
+    out.push({
+      periodLabel,
+      netKm2: 0,
+      fullNet: null,
+      pct: null,
+      hasData: false,
+    });
+  }
+
+  return out;
+}
+
 /**
  * Territory-change bars from `data/history/weekly` anchors (WoW), optionally ending with a segment
  * to the viewed date via linear interpolation/extrapolation between nearest anchors.
@@ -2282,7 +2507,8 @@ function getCalendarYearNetMovementFromDaily(
 /**
  * Bars for territory controlled-area change: either Δ Russian or Δ Ukrainian per step (national or oblast).
  * Day: last 14 snapshots vs previous. Week: Sun–Sat weeks ending Saturday from dailies (matches summary).
- * Month: six completed calendar months. Year: yearly JSON (YoY) when provided, else YoY from weekly
+ * Month: calendar months from dailies (current month partial through viewed date; matches summary).
+ * Year: yearly JSON (YoY) when provided, else YoY from weekly
  * year-end anchors, else last six calendar years from dailies.
  */
 export function getNetMovementChartRows(
@@ -2333,26 +2559,11 @@ export function getNetMovementChartRows(
   }
 
   if (period === 'month') {
-    const months = getLastSixCompletedMonthsNetMovement(data, oblast, options?.weeklySnapshots);
-    return months.map((row) => {
-      const [yy, mm] = row.monthKey.split('-');
-      const periodLabel = `${SHORT_MONTH[parseInt(mm, 10) - 1]}-${yy.slice(-2)}`;
-      const canPlot = row.snapshotCount >= 2 && row.areaDenominatorKm2 > 0;
-      const raw =
-        mode === 'ukrainian' ? row.ukrainianDeltaKm2 : row.russianDeltaKm2;
-      const pct = canPlot ? (raw / row.areaDenominatorKm2) * 100 : null;
-      return {
-        periodLabel,
-        netKm2: canPlot ? raw : 0,
-        fullNet: canPlot ? raw : null,
-        pct,
-        hasData: canPlot,
-        tooltipNote:
-          row.source === 'weekly_bridge'
-            ? 'Estimated from weekly history: interpolated/extrapolated territory at month start vs month end (fewer than 2 daily snapshots in this month).'
-            : undefined,
-      };
-    });
+    const sel = options?.selectedDate ?? data[data.length - 1]?.date ?? '';
+    if (sel) {
+      return getCalendarMonthNetMovementRows(data, sel, oblast, 6, mode, options?.weeklySnapshots);
+    }
+    return [];
   }
 
   if (period === 'year') {
