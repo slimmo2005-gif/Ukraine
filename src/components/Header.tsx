@@ -1,3 +1,5 @@
+import { BrandHeaderLogo } from '@/components/BrandMark';
+
 /**
  * Header - Application header with branding
  */
@@ -29,6 +31,7 @@ export function Header({ onInfoClick, onFeedbackClick }: HeaderProps) {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4">
+            <BrandHeaderLogo className="hidden md:flex" />
             <div className="hidden sm:flex items-center gap-4 text-sm text-gray-400">
               <span>OSINT Dashboard</span>
               <span className="w-1 h-1 bg-gray-600 rounded-full" aria-hidden />
@@ -50,6 +53,7 @@ export function Header({ onInfoClick, onFeedbackClick }: HeaderProps) {
                 Provide feedback
               </button>
             )}
+            <BrandHeaderLogo className="md:hidden" />
             {onFeedbackClick && (
               <button
                 type="button"

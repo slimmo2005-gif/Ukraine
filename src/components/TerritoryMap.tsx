@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { MapContainer, TileLayer, GeoJSON, Rectangle, useMap } from 'react-leaflet';
 import type { DailyTerritoryData, FrontKey } from '@/types';
 import { FRONT_BOUNDS, generateMockFrontlineGeoJSON, getControlColor, getFillOpacity } from '@/utils/geoData';
+import { BrandedVisual } from '@/components/BrandMark';
 
 type LatLngTuple = [number, number];
 
@@ -26,14 +27,8 @@ const UKRAINE_CENTER: LatLngTuple = [48.5, 31.0];
 /**
  * MapController - Internal component to handle map state
  */
-function MapController({ selectedDate }: { selectedDate: string }) {
+function MapController() {
   useMap();
-  
-  // Update map when date changes (could add animations here)
-  useMemo(() => {
-    // Future: pan/zoom to areas with significant changes
-  }, [selectedDate]);
-  
   return null;
 }
 
@@ -142,7 +137,7 @@ export function TerritoryMap({ data, selectedDate, onDateChange }: TerritoryMapP
       </div>
 
       {/* Map */}
-      <div className="h-[500px] rounded-lg overflow-hidden border border-osint-border">
+      <BrandedVisual className="h-[500px] rounded-lg overflow-hidden border border-osint-border" watermarkSize="lg">
         <MapContainer
           center={UKRAINE_CENTER}
           zoom={6}
@@ -156,7 +151,7 @@ export function TerritoryMap({ data, selectedDate, onDateChange }: TerritoryMapP
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
-          <MapController selectedDate={selectedDate} />
+          <MapController />
           
           {/* Frontline GeoJSON layers */}
           <GeoJSON
@@ -192,7 +187,7 @@ export function TerritoryMap({ data, selectedDate, onDateChange }: TerritoryMapP
             );
           })}
         </MapContainer>
-      </div>
+      </BrandedVisual>
 
       {/* Legend */}
       <div className="flex flex-wrap gap-4 text-xs">

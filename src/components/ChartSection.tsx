@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { DailyTerritoryData, TimeRange, OblastKey } from '@/types';
 import { TimeRangeToggle } from './TimeRangeToggle';
 import { TerritoryChart } from './TerritoryChart';
+import { BrandedVisual } from '@/components/BrandMark';
 
 /**
  * ChartSection - Territory control over time with monthly / yearly toggle
@@ -46,14 +47,16 @@ export function ChartSection({
           daily averages. Hover shows km².
         </p>
       )}
-      <TerritoryChart
-        dailyData={dailyData}
-        weeklySnapshotData={weeklySnapshotData}
-        yearlySnapshotData={yearlySnapshotData}
-        selectedDate={selectedDate}
-        timeRange={timeRange}
-        oblast={oblast}
-      />
+      <BrandedVisual className="min-h-[320px]" watermarkSize="md">
+        <TerritoryChart
+          dailyData={dailyData}
+          weeklySnapshotData={weeklySnapshotData}
+          yearlySnapshotData={yearlySnapshotData}
+          selectedDate={selectedDate}
+          timeRange={timeRange}
+          oblast={oblast}
+        />
+      </BrandedVisual>
     </div>
   );
 }

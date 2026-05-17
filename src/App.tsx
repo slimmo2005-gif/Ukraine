@@ -12,6 +12,7 @@ import {
 import { Header } from '@/components/Header';
 import { PipelineInfoModal } from '@/components/PipelineInfoModal';
 import { FeedbackModal } from '@/components/FeedbackModal';
+import { BrandedVisual, BrandFooterMark } from '@/components/BrandMark';
 import { AdminAnalytics } from '@/components/AdminAnalytics';
 import { logPageSessionVisit } from '@/lib/analytics';
 import { DeepStateAttribution } from '@/components/DeepStateAttribution';
@@ -1010,8 +1011,9 @@ function App() {
                                 ? ' Year: YoY between last weekly snapshot of each calendar year (up to six year transitions). 2022 uses 22 Feb as the series start (invasion-era) through the last 2022 anchor. Daily fallback uses the same 2022 start when weekly history is unavailable.'
                                 : ' Year: last six calendar years from loaded dailies (first vs last snapshot per year).')}
                         </p>
-                        <div
+                        <BrandedVisual
                           className={`w-full ${netMovementPeriod === 'day' ? 'h-[200px]' : 'h-[172px]'}`}
+                          watermarkSize="sm"
                         >
                           <ResponsiveContainer width="100%" height="100%">
                             <BarChart
@@ -1109,7 +1111,7 @@ function App() {
                               </Bar>
                             </BarChart>
                           </ResponsiveContainer>
-                        </div>
+                        </BrandedVisual>
                       </div>
                     </div>
                   </div>
@@ -1160,7 +1162,7 @@ function App() {
                     </p>
                   </div>
                 </div>
-                <div className="overflow-x-auto -mx-0.5">
+                <BrandedVisual className="overflow-x-auto -mx-0.5 min-h-[200px]" watermarkSize="sm">
                   <table className="w-full table-fixed text-[11px] sm:text-xs border-collapse">
                     <thead>
                       <tr className="border-b border-osint-border">
@@ -1287,7 +1289,7 @@ function App() {
                       </tr>
                     </tfoot>
                   </table>
-                </div>
+                </BrandedVisual>
                 <div
                   className="mt-3 pt-3 border-t border-osint-border/60 text-[10px] sm:text-[11px] text-gray-500 leading-snug space-y-1.5"
                   aria-label="Column legend"
@@ -1431,6 +1433,7 @@ function App() {
                 </a>
               </p>
             </div>
+            <BrandFooterMark />
             <div className="text-right">
               <p className="text-xs text-gray-500">
                 Built with React + TypeScript + Recharts

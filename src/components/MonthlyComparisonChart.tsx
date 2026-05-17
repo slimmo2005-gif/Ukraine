@@ -14,6 +14,7 @@ import {
   buildMonthlyComparisonRows,
   type MonthlyComparisonMetric,
 } from '@/utils/calculations';
+import { BrandedVisual } from '@/components/BrandMark';
 
 function formatKm2(v: number): string {
   if (Math.abs(v) >= 1000) {
@@ -236,7 +237,8 @@ export function MonthlyComparisonChart({
           No monthly comparison data for this selection — check the date navigator and loaded history depth.
         </p>
       ) : (
-        <ResponsiveContainer width="100%" height={340}>
+        <BrandedVisual className="h-[340px]" watermarkSize="md">
+        <ResponsiveContainer width="100%" height="100%">
         <BarChart data={rows} margin={{ top: 8, right: 12, bottom: 48, left: 4 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
           <XAxis
@@ -266,6 +268,7 @@ export function MonthlyComparisonChart({
           <Bar dataKey="main" name="Main period" fill="#ef4444" radius={[2, 2, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
+        </BrandedVisual>
       )}
     </div>
   );

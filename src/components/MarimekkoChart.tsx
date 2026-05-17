@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { OblastControl, OblastKey } from '@/types';
 import { OBLAST_NAMES } from '@/data/mockData';
+import { BrandedVisual } from '@/components/BrandMark';
 
 /**
  * MarimekkoChart - Shows oblast territory control as a mosaic visualization
@@ -59,6 +60,7 @@ export function MarimekkoChart({ oblasts }: MarimekkoChartProps) {
       </p>
 
       {/* Chart Container */}
+      <BrandedVisual watermarkSize="sm">
       <div className="flex flex-col gap-1">
         {processedData.map((oblast) => (
           <div key={oblast.key} className="flex items-center gap-2">
@@ -129,6 +131,7 @@ export function MarimekkoChart({ oblasts }: MarimekkoChartProps) {
           </div>
         ))}
       </div>
+      </BrandedVisual>
 
       {/* Legend */}
       <div className="flex flex-wrap gap-4 mt-6 pt-4 border-t border-osint-border">
