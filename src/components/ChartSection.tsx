@@ -29,10 +29,10 @@ export function ChartSection({
 
   return (
     <div className="bg-osint-card rounded-lg p-6 border border-osint-border">
-      <div className="flex items-start justify-between gap-4 mb-3">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 mb-3">
         <h3 className="text-lg font-semibold text-white min-w-0">{title}</h3>
-        <div className="flex flex-col items-end gap-2 shrink-0">
-          <BrandPanelLogo />
+        <BrandPanelLogo className="justify-self-center" />
+        <div className="flex justify-end">
           <TimeRangeToggle value={timeRange} onChange={setTimeRange} />
         </div>
       </div>

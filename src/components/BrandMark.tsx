@@ -78,16 +78,23 @@ export function BrandHeaderLogo({ className = '' }: BrandHeaderLogoProps) {
 
 type BrandPanelLogoProps = {
   className?: string;
+  /** `large` is 2× default — used on Territory Breakdown. */
+  size?: 'default' | 'large';
+};
+
+const panelLogoImgClass: Record<'default' | 'large', string> = {
+  default: 'h-10 w-auto max-w-[min(48vw,200px)] object-contain sm:h-11 sm:max-w-[220px]',
+  large: 'h-20 w-auto max-w-[min(70vw,400px)] object-contain sm:h-[5.5rem] sm:max-w-[440px]',
 };
 
 /** Larger logo for panel headers (Territory Breakdown, charts). */
-export function BrandPanelLogo({ className = '' }: BrandPanelLogoProps) {
+export function BrandPanelLogo({ className = '', size = 'default' }: BrandPanelLogoProps) {
   return (
     <div className={`flex shrink-0 items-center ${className}`.trim()} title={BRAND_NAME}>
       <img
         src={BRAND_LOGO_URL}
         alt={BRAND_NAME}
-        className="h-10 w-auto max-w-[min(48vw,200px)] object-contain sm:h-11 sm:max-w-[220px]"
+        className={panelLogoImgClass[size]}
         draggable={false}
       />
     </div>

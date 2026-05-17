@@ -870,7 +870,7 @@ function App() {
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-osint-card rounded-lg p-6 border border-osint-border">
-              <div className="flex items-start justify-between gap-4 mb-3">
+              <div className="flex items-start justify-between gap-4 mb-4">
                 <div className="min-w-0 flex-1">
                   <h3 className="text-lg font-semibold text-white mb-1">Territory Breakdown</h3>
                   {netMovementPeriod === 'week' && metrics.deltaLine.weekPeriodLabel && (
@@ -892,7 +892,7 @@ function App() {
                     </p>
                   )}
                 </div>
-                <BrandPanelLogo />
+                <BrandPanelLogo size="large" />
               </div>
               <p className="text-[11px] text-gray-500 mb-4 leading-snug">
                 Δ lines follow Area change <span className="text-gray-400">View</span> (
