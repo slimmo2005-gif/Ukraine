@@ -868,9 +868,9 @@ export function buildMonthlyComparisonRows(
 }
 
 /**
- * Exactly `nMonths` calendar month buckets (through `selectedDate`’s month) for stacked control chart:
- * daily monthly averages when available; else weekly-interpolated national control at month end
- * (or `selectedDate` when that month is incomplete).
+ * Exactly `nMonths` calendar month buckets (through `selectedDate`’s month) for stacked control chart.
+ * Each bar uses territory state at month end (or `selectedDate` for the partial current month):
+ * nearest daily snapshot, else weekly interpolation, else yearly anchors.
  */
 export function buildLastNMonthlyControlChartPoints(
   dailySortedAsc: DailyTerritoryData[],
@@ -878,37 +878,37 @@ export function buildLastNMonthlyControlChartPoints(
   selectedDate: string,
   nMonths: number,
   oblast?: OblastKey,
+  yearlySortedAsc?: DailyTerritoryData[],
 ): ChartDataPoint[] {
   const sortedDaily = [...dailySortedAsc].sort((a, b) => a.date.localeCompare(b.date));
   const dataThrough = sortedDaily.filter((d) => d.date <= selectedDate);
-  const monthlyAgg = oblast
-    ? aggregateMonthlyOblast(dataThrough, oblast)
-    : aggregateMonthly(dataThrough);
-  const byPeriod = new Map(monthlyAgg.map((a) => [a.period, a]));
   const sortedWeekly = [...weeklySortedAsc].sort((a, b) => a.date.localeCompare(b.date));
+  const sortedYearly = [...(yearlySortedAsc ?? [])].sort((a, b) => a.date.localeCompare(b.date));
 
   const keys = lastNCalendarMonthsThroughDate(selectedDate, nMonths);
   const selYm = selectedDate.length >= 7 ? selectedDate.slice(0, 7) : '';
 
   return keys.map((monthKey) => {
-    const a = byPeriod.get(monthKey);
-    if (a && a.daysCount > 0) {
-      return {
-        date: a.period,
-        formattedDate: formatPeriod(monthKey, 'monthly'),
-        russianControlled: a.russianAvg,
-        ukrainianControlled: a.ukrainianAvg,
-        disputed: a.disputedAvg,
-        russianChange: a.russianChangeSum,
-        ukrainianChange: a.ukrainianChangeSum,
-        disputedChange: a.disputedChangeSum,
-      };
-    }
-
     const ym = parseYearMonthKey(monthKey);
+    const yy = ym ? String(ym.year).slice(-2) : '';
+    const monthStart = ym ? firstDayKeyOfMonth(ym.year, ym.month) : `${monthKey}-01`;
+    const monthEnd = ym ? lastDayKeyOfMonth(ym.year, ym.month) : monthKey;
+    const partial =
+      !!ym &&
+      monthKey === selYm &&
+      selectedDate.length >= 10 &&
+      selectedDate >= monthStart &&
+      selectedDate < monthEnd;
+    const periodEnd = partial ? selectedDate : monthEnd;
+    const formattedDate = partial
+      ? `→ ${SHORT_MONTH[(ym?.month ?? 1) - 1]}-${yy}`
+      : ym
+        ? formatMonthAxisLabel(ym.year, ym.month)
+        : monthKey;
+
     const empty = (meta: string): ChartDataPoint => ({
       date: `${monthKey}-01`,
-      formattedDate: formatPeriod(monthKey, 'monthly'),
+      formattedDate,
       russianControlled: 0,
       ukrainianControlled: 0,
       disputed: 0,
@@ -918,51 +918,28 @@ export function buildLastNMonthlyControlChartPoints(
       snapshotMeta: meta,
     });
 
-    if (!ym || sortedWeekly.length < 2) {
-      return empty('No daily or weekly data for this month.');
+    if (!ym) {
+      return empty('Invalid month key.');
     }
 
-    const monthEnd = lastDayKeyOfMonth(ym.year, ym.month);
-    const endTarget =
-      monthKey === selYm &&
-      selectedDate.length >= 10 &&
-      selectedDate >= `${monthKey}-01` &&
-      selectedDate < monthEnd
-        ? selectedDate
-        : monthEnd;
-
-    const state = interpolateTerritoryAtDate(sortedWeekly, endTarget);
+    const state = resolveTerritoryStateAtDate(dataThrough, sortedWeekly, periodEnd, sortedYearly);
     if (!state) {
-      return empty('Weekly interpolation unavailable for this month.');
+      return empty('No daily, weekly, or yearly data for this month.');
     }
 
-    if (oblast) {
-      const o = state.oblasts.find((x) => x.oblast === oblast);
-      return {
-        date: endTarget,
-        formattedDate: formatPeriod(monthKey, 'monthly'),
-        russianControlled: o?.russian_controlled_km2 ?? 0,
-        ukrainianControlled: o?.ukrainian_controlled_km2 ?? 0,
-        disputed: o?.disputed_controlled_km2 ?? 0,
-        russianChange: 0,
-        ukrainianChange: 0,
-        disputedChange: 0,
-        snapshotMeta: `Weekly interpolation at ${endTarget} (no daily samples in ${monthKey}).`,
-      };
-    }
+    const snapDate = state.date;
+    const usedDaily = dataThrough.some((d) => d.date === snapDate);
+    const usedYearly =
+      !usedDaily &&
+      sortedYearly.some((y) => y.date <= periodEnd) &&
+      (!sortedWeekly.some((w) => w.date <= periodEnd) || sortedWeekly.length < 2);
+    const meta = usedDaily
+      ? `Daily snapshot ${snapDate.slice(5)} (state at ${periodEnd.slice(5)}).`
+      : usedYearly
+        ? `Yearly anchor interpolation at ${periodEnd.slice(5)}.`
+        : `Weekly interpolation at ${periodEnd.slice(5)}.`;
 
-    const u = state.total_area_km2 - state.total_russian_controlled_km2 - state.total_disputed_km2;
-    return {
-      date: endTarget,
-      formattedDate: formatPeriod(monthKey, 'monthly'),
-      russianControlled: state.total_russian_controlled_km2,
-      ukrainianControlled: u,
-      disputed: state.total_disputed_km2,
-      russianChange: 0,
-      ukrainianChange: 0,
-      disputedChange: 0,
-      snapshotMeta: `Weekly interpolation at ${endTarget} (no daily samples in ${monthKey}).`,
-    };
+    return chartPointFromTerritoryState(state, formattedDate, meta, oblast);
   });
 }
 
@@ -2255,8 +2232,77 @@ export function getSaturdayWeekNetMovementRows(
   return out;
 }
 
-function formatMonthAxisLabel(year: number, month: number): string {
+export function formatMonthAxisLabel(year: number, month: number): string {
   return `${SHORT_MONTH[month - 1]}-${String(year).slice(-2)}`;
+}
+
+/** Best territory state on or before `targetDate`: daily snapshot, else weekly/yearly interpolation. */
+export function resolveTerritoryStateAtDate(
+  dailySortedAsc: DailyTerritoryData[],
+  weeklySortedAsc: DailyTerritoryData[],
+  targetDate: string,
+  yearlySortedAsc?: DailyTerritoryData[],
+): DailyTerritoryData | null {
+  const daily = dailySortedAsc.filter((d) => d.date <= targetDate);
+  const endIndex = daily.length - 1;
+  if (endIndex >= 0) {
+    const idx = findIndexOnOrBefore(daily, targetDate, endIndex);
+    if (idx >= 0) {
+      return daily[idx];
+    }
+  }
+
+  const weekly = weeklySortedAsc.filter((w) => w.date <= targetDate);
+  if (weekly.length >= 2) {
+    return interpolateTerritoryAtDate(weekly, targetDate);
+  }
+  if (weekly.length === 1) {
+    return { ...weekly[0], date: targetDate };
+  }
+
+  const yearly = (yearlySortedAsc ?? []).filter((y) => y.date <= targetDate);
+  if (yearly.length >= 2) {
+    return interpolateTerritoryAtDate(yearly, targetDate);
+  }
+  if (yearly.length === 1) {
+    return { ...yearly[0], date: targetDate };
+  }
+
+  return null;
+}
+
+function chartPointFromTerritoryState(
+  state: DailyTerritoryData,
+  formattedDate: string,
+  snapshotMeta: string,
+  oblast?: OblastKey,
+): ChartDataPoint {
+  if (oblast) {
+    const o = state.oblasts.find((x) => x.oblast === oblast);
+    return {
+      date: state.date,
+      formattedDate,
+      russianControlled: o?.russian_controlled_km2 ?? 0,
+      ukrainianControlled: o?.ukrainian_controlled_km2 ?? 0,
+      disputed: o?.disputed_controlled_km2 ?? 0,
+      russianChange: 0,
+      ukrainianChange: 0,
+      disputedChange: 0,
+      snapshotMeta,
+    };
+  }
+  const u = state.total_area_km2 - state.total_russian_controlled_km2 - state.total_disputed_km2;
+  return {
+    date: state.date,
+    formattedDate,
+    russianControlled: state.total_russian_controlled_km2,
+    ukrainianControlled: u,
+    disputed: state.total_disputed_km2,
+    russianChange: 0,
+    ukrainianChange: 0,
+    disputedChange: 0,
+    snapshotMeta,
+  };
 }
 
 /**
@@ -2270,6 +2316,7 @@ export function getCalendarMonthNetMovementRows(
   maxBars: number,
   deltaMode: NetMovementDeltaMode,
   weeklySnapshots?: DailyTerritoryData[],
+  yearlySnapshots?: DailyTerritoryData[],
 ): NetMovementBarRow[] {
   const endIndex = data.length - 1;
   if (endIndex < 0 || !selectedDate) {
@@ -2335,12 +2382,13 @@ export function getCalendarMonthNetMovementRows(
       continue;
     }
 
+    const endClamp = partial ? b.periodEnd : undefined;
+    let bridgedRow: NetMovementBarRow | null = null;
     if (weeklySnapshots && weeklySnapshots.length >= 2) {
-      const endClamp = partial ? b.periodEnd : undefined;
       const bridged = tryMonthNetFromWeekly(weeklySnapshots, b.year, b.month, oblast, endClamp);
       if (bridged) {
         const raw = deltaMode === 'ukrainian' ? bridged.ukrainianDeltaKm2 : bridged.russianDeltaKm2;
-        out.push({
+        bridgedRow = {
           periodLabel,
           netKm2: raw,
           fullNet: raw,
@@ -2348,9 +2396,27 @@ export function getCalendarMonthNetMovementRows(
           hasData: true,
           tooltipNote:
             'Estimated from weekly history at month start vs end (fewer than 2 daily snapshots in this month).',
-        });
-        continue;
+        };
       }
+    }
+    if (!bridgedRow && yearlySnapshots && yearlySnapshots.length >= 2) {
+      const bridged = tryMonthNetFromWeekly(yearlySnapshots, b.year, b.month, oblast, endClamp);
+      if (bridged) {
+        const raw = deltaMode === 'ukrainian' ? bridged.ukrainianDeltaKm2 : bridged.russianDeltaKm2;
+        bridgedRow = {
+          periodLabel,
+          netKm2: raw,
+          fullNet: raw,
+          pct: (raw / bridged.areaDenominatorKm2) * 100,
+          hasData: true,
+          tooltipNote:
+            'Estimated from yearly anchors at month start vs end (fewer than 2 daily snapshots in this month).',
+        };
+      }
+    }
+    if (bridgedRow) {
+      out.push(bridgedRow);
+      continue;
     }
 
     out.push({
@@ -2561,7 +2627,15 @@ export function getNetMovementChartRows(
   if (period === 'month') {
     const sel = options?.selectedDate ?? data[data.length - 1]?.date ?? '';
     if (sel) {
-      return getCalendarMonthNetMovementRows(data, sel, oblast, 6, mode, options?.weeklySnapshots);
+      return getCalendarMonthNetMovementRows(
+        data,
+        sel,
+        oblast,
+        6,
+        mode,
+        options?.weeklySnapshots,
+        options?.yearlySnapshots,
+      );
     }
     return [];
   }

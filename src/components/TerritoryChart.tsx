@@ -131,6 +131,7 @@ export function TerritoryChart({
         chartCutoffDate,
         MONTHLY_CHART_PERIOD_COUNT,
         oblast,
+        yearlySnapshotsUpToDate,
       );
     }
 
@@ -158,6 +159,7 @@ export function TerritoryChart({
     weeklySnapshotData,
     chartCutoffDate,
     oblast,
+    yearlySnapshotsUpToDate,
   ]);
 
   const stackedControlData = useMemo(
@@ -220,6 +222,7 @@ export function TerritoryChart({
   return (
     <ResponsiveContainer width="100%" height={320}>
       <BarChart
+        key={timeRange}
         data={stackedControlData}
         margin={{ top: 16, right: 12, bottom: 8, left: 4 }}
       >
