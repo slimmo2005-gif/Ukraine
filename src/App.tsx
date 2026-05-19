@@ -14,6 +14,7 @@ import { PipelineInfoModal } from '@/components/PipelineInfoModal';
 import { FeedbackModal } from '@/components/FeedbackModal';
 import { BrandedVisual, BrandFooterMark, BrandPanelLogo } from '@/components/BrandMark';
 import { AdminAnalytics } from '@/components/AdminAnalytics';
+import { AdminDataBundle } from '@/components/AdminDataBundle';
 import { logPageSessionVisit } from '@/lib/analytics';
 import { DeepStateAttribution } from '@/components/DeepStateAttribution';
 import { ChartSection } from '@/components/ChartSection';
@@ -21,7 +22,6 @@ import { MonthlyComparisonChart } from '@/components/MonthlyComparisonChart';
 import { ViewLevelToggle } from '@/components/ViewLevelToggle';
 import { MarimekkoChart, OblastGridView } from '@/components/MarimekkoChart';
 import { OBLAST_NAMES } from '@/data/mockData';
-import { EXCLUDED_DATES } from '@/config/excludedDates';
 import {
   getTodayMetrics,
   get7DaySummary,
@@ -36,207 +36,10 @@ import {
   type NetMovementDeltaMode,
 } from '@/utils/calculations';
 import type { ViewLevel, OblastKey, DailyTerritoryData } from '@/types';
-import { mapPool } from '@/utils/parallelFetch';
-
-/** Parallel raw JSON fetches; bounded to avoid browser connection limits and GitHub throttling. */
-const DATA_FETCH_CONCURRENCY = 12;
-
-/**
- * Fetch territory data from GitHub repository
- * Repo: https://github.com/slimmo2005-gif/ukraine-territory-data
- */
-/** Daily history depth: must reach early 2022 for pre-war + multi-year monthly comparison (~5.5y). */
-const DAILY_HISTORY_LOOKBACK_DAYS = 2000;
-
-const DATA_REPO_RAW_BASE_URL = 'https://raw.githubusercontent.com/slimmo2005-gif/ukraine-territory-data';
-const DATA_REPO_API_BASE_URL = 'https://api.github.com/repos/slimmo2005-gif/ukraine-territory-data/contents';
-const DATA_DIRECTORIES = ['data', 'data/history'];
-const DATA_WEEKLY_DIRECTORY = 'data/history/weekly';
-/** Tried in order until one lists JSON files (supports yearly vs annual folder names). */
-const DATA_YEARLY_DIRECTORIES = ['data/history/yearly', 'data/history/annual'] as const;
-const DATA_REPO_BRANCHES = ['master', 'main'];
-
-type DirectoryJsonListing = { dateKeys: string[]; branch: string };
-
-function toDateKey(value: string): string {
-  const trimmed = value.trim();
-  const isoDateOnlyMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})$/);
-  if (isoDateOnlyMatch) {
-    return isoDateOnlyMatch[1];
-  }
-
-  const isoDateTimeMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})T/);
-  if (isoDateTimeMatch) {
-    return isoDateTimeMatch[1];
-  }
-
-  const parsed = new Date(trimmed);
-  if (!Number.isNaN(parsed.getTime())) {
-    const year = parsed.getFullYear();
-    const month = String(parsed.getMonth() + 1).padStart(2, '0');
-    const day = String(parsed.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  }
-
-  return trimmed;
-}
-
-async function fetchDataFromUrl(url: string, dateKeyForLog: string): Promise<DailyTerritoryData | null> {
-  try {
-    const response = await fetch(url, { cache: 'default' });
-    if (!response.ok) {
-      if (response.status === 404) {
-        return null;
-      }
-      throw new Error(`HTTP ${response.status}`);
-    }
-    const data = await response.json() as DailyTerritoryData;
-    if (EXCLUDED_DATES.has(toDateKey(data.date))) {
-      return null;
-    }
-    return data;
-  } catch (error) {
-    console.error(`Failed to fetch data for ${dateKeyForLog}:`, error);
-    return null;
-  }
-}
-
-type DateKeySources = Map<string, string[]>;
-
-async function discoverJsonDateKeysInDirectory(directory: string): Promise<DirectoryJsonListing | null> {
-  for (const branch of DATA_REPO_BRANCHES) {
-    try {
-      const response = await fetch(`${DATA_REPO_API_BASE_URL}/${directory}?ref=${branch}`, {
-        cache: 'default',
-      });
-      if (!response.ok) {
-        continue;
-      }
-      const entries = await response.json() as { name: string; type: string }[];
-      const dateKeys: string[] = [];
-      for (const entry of entries) {
-        if (entry.type !== 'file') continue;
-        const match = entry.name.match(/^(\d{4}-\d{2}-\d{2})\.json$/);
-        if (!match) continue;
-        const dateKey = match[1];
-        if (EXCLUDED_DATES.has(dateKey)) continue;
-        dateKeys.push(dateKey);
-      }
-      dateKeys.sort();
-      return { dateKeys, branch };
-    } catch {
-      // Try next branch.
-    }
-  }
-  return null;
-}
-
-async function discoverDateSources(): Promise<DateKeySources> {
-  const dateToUrls: DateKeySources = new Map();
-
-  const listings = await Promise.all(
-    DATA_DIRECTORIES.map(async (directory) => ({
-      directory,
-      listing: await discoverJsonDateKeysInDirectory(directory),
-    })),
-  );
-
-  for (const { directory, listing } of listings) {
-    if (!listing) {
-      continue;
-    }
-    const { dateKeys, branch } = listing;
-    for (const dateKey of dateKeys) {
-      const url = `${DATA_REPO_RAW_BASE_URL}/${branch}/${directory}/${dateKey}.json`;
-      const existing = dateToUrls.get(dateKey) || [];
-      existing.push(url);
-      dateToUrls.set(dateKey, existing);
-    }
-  }
-
-  return dateToUrls;
-}
-
-/** All weekly anchors under data/history/weekly/ (UTC 7-day series from 2026-01-01), ascending by date key. */
-async function fetchWeeklySnapshotSeries(): Promise<DailyTerritoryData[]> {
-  const listing = await discoverJsonDateKeysInDirectory(DATA_WEEKLY_DIRECTORY);
-  if (!listing) {
-    return [];
-  }
-  const { dateKeys, branch } = listing;
-  const rows = await mapPool(dateKeys, DATA_FETCH_CONCURRENCY, async (dateKey) => {
-    const url = `${DATA_REPO_RAW_BASE_URL}/${branch}/${DATA_WEEKLY_DIRECTORY}/${dateKey}.json`;
-    return fetchDataFromUrl(url, dateKey);
-  });
-  return rows.filter((row): row is DailyTerritoryData => row !== null);
-}
-
-/** Yearly anchors under data/history/yearly or annual/, ascending by date key (when present). */
-async function fetchYearlySnapshotSeries(): Promise<DailyTerritoryData[]> {
-  for (const directory of DATA_YEARLY_DIRECTORIES) {
-    const listing = await discoverJsonDateKeysInDirectory(directory);
-    if (!listing) {
-      continue;
-    }
-    const { dateKeys, branch } = listing;
-    const rows = await mapPool(dateKeys, DATA_FETCH_CONCURRENCY, async (dateKey) => {
-      const url = `${DATA_REPO_RAW_BASE_URL}/${branch}/${directory}/${dateKey}.json`;
-      return fetchDataFromUrl(url, dateKey);
-    });
-    const out = rows.filter((row): row is DailyTerritoryData => row !== null);
-    if (out.length > 0) {
-      return out;
-    }
-  }
-  return [];
-}
-
-async function fetchDateRange(startDate: Date, endDate: Date): Promise<DailyTerritoryData[]> {
-  const startKey = startDate.toISOString().split('T')[0];
-  const endKey = endDate.toISOString().split('T')[0];
-
-  const dateSources = await discoverDateSources();
-
-  const dateKeys = Array.from(dateSources.keys())
-    .filter((dateKey) => dateKey >= startKey && dateKey <= endKey)
-    .sort();
-
-  if (dateKeys.length === 0) {
-    const fallback: { dateKey: string; url: string }[] = [];
-    const current = new Date(startDate);
-    while (current <= endDate) {
-      const dateStr = current.toISOString().split('T')[0];
-      if (!EXCLUDED_DATES.has(dateStr)) {
-        fallback.push({ dateKey: dateStr, url: `${DATA_REPO_RAW_BASE_URL}/master/data/${dateStr}.json` });
-      }
-      current.setDate(current.getDate() + 1);
-    }
-    const rows = await mapPool(fallback, DATA_FETCH_CONCURRENCY, ({ dateKey, url }) =>
-      fetchDataFromUrl(url, dateKey),
-    );
-    return rows.filter((row): row is DailyTerritoryData => row !== null);
-  }
-
-  async function fetchFirstForDateKey(dateKey: string): Promise<DailyTerritoryData | null> {
-    const urls = dateSources.get(dateKey) || [];
-    for (const url of urls) {
-      const dayData = await fetchDataFromUrl(url, dateKey);
-      if (dayData) {
-        return dayData;
-      }
-    }
-    return null;
-  }
-
-  const rows = await mapPool(dateKeys, DATA_FETCH_CONCURRENCY, (dateKey) => fetchFirstForDateKey(dateKey));
-  return rows.filter((row): row is DailyTerritoryData => row !== null);
-}
-
-function getDateDaysAgo(days: number): Date {
-  const date = new Date();
-  date.setDate(date.getDate() - days);
-  return date;
-}
+import {
+  loadTerritoryData,
+  type TerritoryDataLoadSource,
+} from '@/services/territoryData';
 
 /**
  * Main App Component - Ukraine War Territory Tracker Dashboard
@@ -353,6 +156,7 @@ function App() {
   const [yearlySnapshotData, setYearlySnapshotData] = useState<DailyTerritoryData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [dataLoadSource, setDataLoadSource] = useState<TerritoryDataLoadSource>('none');
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [showHistoryHelp, setShowHistoryHelp] = useState<boolean>(false);
   const [oblastRussianChangePeriod, setOblastRussianChangePeriod] =
@@ -367,23 +171,21 @@ function App() {
       setError(null);
       
       try {
-        const endDate = new Date();
-        const startDate = getDateDaysAgo(DAILY_HISTORY_LOOKBACK_DAYS);
-        
-        const [data, weekly, yearly] = await Promise.all([
-          fetchDateRange(startDate, endDate),
-          fetchWeeklySnapshotSeries(),
-          fetchYearlySnapshotSeries(),
-        ]);
+        const result = await loadTerritoryData();
 
-        setHistoricalData(data);
-        setWeeklySnapshotData(weekly);
-        setYearlySnapshotData(yearly);
-        if (data.length > 0) {
-          setSelectedDate(data[data.length - 1].date);
+        setHistoricalData(result.daily);
+        setWeeklySnapshotData(result.weekly);
+        setYearlySnapshotData(result.yearly);
+        setDataLoadSource(result.source);
+        if (result.warning) {
+          setError(result.warning);
+        }
+        if (result.daily.length > 0) {
+          setSelectedDate(result.daily[result.daily.length - 1].date);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load data');
+        setDataLoadSource('none');
       } finally {
         setIsLoading(false);
       }
@@ -672,7 +474,8 @@ function App() {
             <span className="text-xs text-gray-500">Visitor analytics (private)</span>
           </div>
         </header>
-        <main className="max-w-7xl mx-auto px-4 py-8">
+        <main className="max-w-7xl mx-auto px-4 py-8 space-y-6">
+          <AdminDataBundle liveSource={dataLoadSource} />
           <AdminAnalytics onClose={() => { window.location.hash = ''; }} embedded />
         </main>
       </div>
@@ -705,19 +508,32 @@ function App() {
             <div className="text-center bg-osint-card rounded-lg p-8 border border-osint-border">
               <div className="text-4xl mb-4">📊</div>
               <h3 className="text-xl font-semibold text-white mb-2">No Data Available</h3>
-              <p className="text-gray-400 mb-4">The data repository doesn&apos;t have any territory data yet.</p>
-              <p className="text-sm text-gray-500">
-                Expected: <code className="bg-osint-dark px-2 py-1 rounded">2026-05-03.json</code> and <code className="bg-osint-dark px-2 py-1 rounded">2026-05-04.json</code>
+              <p className="text-gray-400 mb-4 max-w-md mx-auto leading-relaxed">
+                Territory snapshots could not be loaded. On corporate networks this often means{' '}
+                <strong className="text-gray-300">GitHub raw content is blocked</strong> — use the
+                public GitHub Pages URL for this app, which serves data from the same site.
               </p>
+              {error && (
+                <p className="text-sm text-amber-400/90 mb-4 max-w-md mx-auto">{error}</p>
+              )}
               <p className="text-xs text-gray-600 mt-4">
-                Data source:{' '}
-                <a 
-                  href="https://github.com/slimmo2005-gif/ukraine-territory-data" 
-                  target="_blank" 
+                Upstream data:{' '}
+                <a
+                  href="https://github.com/slimmo2005-gif/ukraine-territory-data"
+                  target="_blank"
                   rel="noopener noreferrer"
                   className="text-ukraine-blue hover:underline"
                 >
-                  github.com/slimmo2005-gif/ukraine-territory-data
+                  ukraine-territory-data
+                </a>
+                {' · '}
+                <a
+                  href="https://github.com/slimmo2005-gif/Ukraine/actions/workflows/sync-territory-data.yml"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-ukraine-blue hover:underline"
+                >
+                  Re-sync bundle (admin)
                 </a>
               </p>
             </div>

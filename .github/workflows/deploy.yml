@@ -37,6 +37,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Sync territory data bundle
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/sync-territory-data.mjs
+
       - name: Build
         env:
           # Public worker URL (no trailing slash). Override via repo secret VITE_ANALYTICS_API_URL if needed.
