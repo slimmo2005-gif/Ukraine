@@ -1,7 +1,9 @@
 /**
  * Edge analytics for static hosting (e.g. GitHub Pages).
  * - POST /visit { sessionId } — records one row per browser session (CF-IPCountry).
- * - POST /admin/stats { password } — returns session totals and counts by country.
+ * - POST /admin/stats { password } — returns session totals and counts by country (excludes owner devices).
+ * - POST /admin/exclude-session { password, sessionId } — stop counting this browser; removes existing row.
+ * - POST /admin/include-session { password, sessionId } — allow counting again (optional).
  * - POST /feedback { message, contactEmail?, contactWhatsapp?, contactDiscord? }
  * - POST /admin/feedback { password } — list feedback grouped by date.
  *
@@ -32,6 +34,31 @@ function corsHeaders(origin: string | null): HeadersInit {
     'access-control-max-age': '86400',
   };
 }
+
+const SESSION_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidSessionId(sessionId: string): boolean {
+  return SESSION_ID_RE.test(sessionId);
+}
+
+async function isSessionExcluded(env: Env, sessionId: string): Promise<boolean> {
+  const row = await env.DB.prepare(
+    `SELECT 1 AS x FROM excluded_sessions WHERE session_id = ? LIMIT 1`,
+  )
+    .bind(sessionId)
+    .first<{ x: number }>();
+  return Boolean(row);
+}
+
+async function verifyAdminPassword(env: Env, password: string): Promise<boolean> {
+  const expected = env.ADMIN_PASSWORD || '';
+  return Boolean(expected && password === expected);
+}
+
+const VISITS_NOT_EXCLUDED = `NOT EXISTS (
+  SELECT 1 FROM excluded_sessions e WHERE e.session_id = visits.session_id
+)`;
 
 function jsonResponse(
   env: Env,
@@ -67,8 +94,11 @@ export default {
           return jsonResponse(env, request, 400, { ok: false, error: 'Invalid JSON' });
         }
         const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId.trim() : '';
-        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sessionId)) {
+        if (!isValidSessionId(sessionId)) {
           return jsonResponse(env, request, 400, { ok: false, error: 'Invalid sessionId' });
+        }
+        if (await isSessionExcluded(env, sessionId)) {
+          return jsonResponse(env, request, 200, { ok: true, recorded: false, excluded: true });
         }
         const country = request.headers.get('CF-IPCountry')?.trim() || 'XX';
         const safeCountry = country.length <= 4 ? country.toUpperCase() : 'XX';
@@ -91,21 +121,29 @@ export default {
           return jsonResponse(env, request, 400, { ok: false, error: 'Invalid JSON' });
         }
         const password = typeof payload.password === 'string' ? payload.password : '';
-        const expected = env.ADMIN_PASSWORD || '';
-        if (!expected || password !== expected) {
+        if (!(await verifyAdminPassword(env, password))) {
           return jsonResponse(env, request, 401, { ok: false, error: 'Unauthorized' });
         }
 
-        const totalRow = await env.DB.prepare(`SELECT COUNT(*) AS c FROM visits`).first<{ c: number }>();
+        const totalRow = await env.DB.prepare(
+          `SELECT COUNT(*) AS c FROM visits WHERE ${VISITS_NOT_EXCLUDED}`,
+        ).first<{ c: number }>();
         const totalSessions = Number(totalRow?.c ?? 0);
 
+        const excludedRow = await env.DB.prepare(
+          `SELECT COUNT(*) AS c FROM excluded_sessions`,
+        ).first<{ c: number }>();
+        const excludedDeviceCount = Number(excludedRow?.c ?? 0);
+
         const byCountry = await env.DB.prepare(
-          `SELECT country, COUNT(*) AS count FROM visits GROUP BY country ORDER BY count DESC`,
+          `SELECT country, COUNT(*) AS count FROM visits WHERE ${VISITS_NOT_EXCLUDED}
+           GROUP BY country ORDER BY count DESC`,
         ).all<{ country: string; count: number }>();
 
         const byDay = await env.DB.prepare(
           `SELECT date(created_at) AS day, COUNT(*) AS count
            FROM visits
+           WHERE ${VISITS_NOT_EXCLUDED}
            GROUP BY date(created_at)
            ORDER BY day ASC`,
         ).all<{ day: string; count: number }>();
@@ -123,9 +161,55 @@ export default {
         return jsonResponse(env, request, 200, {
           ok: true,
           totalSessions,
+          excludedDeviceCount,
           byCountry: rows,
           byDay: dayRows,
         });
+      }
+
+      if (path === '/admin/exclude-session' && request.method === 'POST') {
+        let payload: { password?: string; sessionId?: string };
+        try {
+          payload = (await request.json()) as { password?: string; sessionId?: string };
+        } catch {
+          return jsonResponse(env, request, 400, { ok: false, error: 'Invalid JSON' });
+        }
+        const password = typeof payload.password === 'string' ? payload.password : '';
+        if (!(await verifyAdminPassword(env, password))) {
+          return jsonResponse(env, request, 401, { ok: false, error: 'Unauthorized' });
+        }
+        const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId.trim() : '';
+        if (!isValidSessionId(sessionId)) {
+          return jsonResponse(env, request, 400, { ok: false, error: 'Invalid sessionId' });
+        }
+        await env.DB.prepare(
+          `INSERT OR IGNORE INTO excluded_sessions (session_id) VALUES (?)`,
+        )
+          .bind(sessionId)
+          .run();
+        await env.DB.prepare(`DELETE FROM visits WHERE session_id = ?`).bind(sessionId).run();
+        return jsonResponse(env, request, 200, { ok: true, excluded: true, sessionId });
+      }
+
+      if (path === '/admin/include-session' && request.method === 'POST') {
+        let payload: { password?: string; sessionId?: string };
+        try {
+          payload = (await request.json()) as { password?: string; sessionId?: string };
+        } catch {
+          return jsonResponse(env, request, 400, { ok: false, error: 'Invalid JSON' });
+        }
+        const password = typeof payload.password === 'string' ? payload.password : '';
+        if (!(await verifyAdminPassword(env, password))) {
+          return jsonResponse(env, request, 401, { ok: false, error: 'Unauthorized' });
+        }
+        const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId.trim() : '';
+        if (!isValidSessionId(sessionId)) {
+          return jsonResponse(env, request, 400, { ok: false, error: 'Invalid sessionId' });
+        }
+        await env.DB.prepare(`DELETE FROM excluded_sessions WHERE session_id = ?`)
+          .bind(sessionId)
+          .run();
+        return jsonResponse(env, request, 200, { ok: true, excluded: false, sessionId });
       }
 
       if (path === '/feedback' && request.method === 'POST') {
@@ -181,8 +265,7 @@ export default {
           return jsonResponse(env, request, 400, { ok: false, error: 'Invalid JSON' });
         }
         const password = typeof payload.password === 'string' ? payload.password : '';
-        const expected = env.ADMIN_PASSWORD || '';
-        if (!expected || password !== expected) {
+        if (!(await verifyAdminPassword(env, password))) {
           return jsonResponse(env, request, 401, { ok: false, error: 'Unauthorized' });
         }
 

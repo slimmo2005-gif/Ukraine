@@ -3,6 +3,9 @@ import {
   fetchAdminFeedback,
   fetchAdminStats,
   getAnalyticsBaseUrl,
+  getOrCreateSessionId,
+  isAnalyticsExcludedLocally,
+  setDeviceSessionExclusion,
   type AdminFeedbackResponse,
   type AdminStatsResponse,
   type FeedbackItem,
@@ -66,12 +69,51 @@ export function AdminAnalytics({ onClose, embedded = false }: Props) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deviceBusy, setDeviceBusy] = useState(false);
+  const [deviceMessage, setDeviceMessage] = useState<string | null>(null);
+  const [excludedLocally, setExcludedLocally] = useState(() => isAnalyticsExcludedLocally());
   const [tab, setTab] = useState<AdminTab>('visitors');
   const [stats, setStats] = useState<Extract<AdminStatsResponse, { ok: true }> | null>(null);
   const [feedback, setFeedback] = useState<Extract<AdminFeedbackResponse, { ok: true }> | null>(null);
 
   const configured = Boolean(getAnalyticsBaseUrl());
   const loaded = stats !== null || feedback !== null;
+  const sessionIdShort = (() => {
+    try {
+      const id = getOrCreateSessionId();
+      return `${id.slice(0, 8)}…`;
+    } catch {
+      return '—';
+    }
+  })();
+
+  async function toggleDeviceExclusion(exclude: boolean) {
+    if (!password.trim()) {
+      setDeviceMessage('Enter your admin password above first, then exclude or include this device.');
+      return;
+    }
+    setDeviceBusy(true);
+    setDeviceMessage(null);
+    setError(null);
+    const result = await setDeviceSessionExclusion(password, exclude);
+    setDeviceBusy(false);
+    if (!result.ok) {
+      setDeviceMessage(result.error);
+      return;
+    }
+    setExcludedLocally(exclude);
+    setDeviceMessage(
+      exclude
+        ? 'This browser will not be counted. Reload visitor stats to see updated totals.'
+        : 'This browser may be counted again on the next normal visit (not on #admin).',
+    );
+    if (loaded) {
+      const statsResult = await fetchAdminStats(password);
+      if (statsResult.ok) {
+        setStats(statsResult);
+      }
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -160,6 +202,43 @@ export function AdminAnalytics({ onClose, embedded = false }: Props) {
 
         {error && <p className="text-sm text-red-400 mt-3">{error}</p>}
 
+        {configured && (
+          <div className="mt-4 p-3 rounded border border-osint-border bg-osint-dark/40 space-y-2">
+            <p className="text-xs uppercase tracking-wide text-gray-500">Your devices</p>
+            <p className="text-[11px] text-gray-500 leading-snug">
+              Exclude this browser (PC or phone) from visitor counts. Repeat on each device you use. Session{' '}
+              <code className="text-gray-400">{sessionIdShort}</code>
+              {excludedLocally ? (
+                <span className="text-emerald-400/90"> — excluded on this device</span>
+              ) : (
+                <span className="text-gray-500"> — counted when you visit the main site (not #admin)</span>
+              )}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {excludedLocally ? (
+                <button
+                  type="button"
+                  disabled={deviceBusy}
+                  onClick={() => void toggleDeviceExclusion(false)}
+                  className="px-3 py-1.5 rounded text-xs border border-osint-border text-gray-300 hover:text-white disabled:opacity-40"
+                >
+                  {deviceBusy ? 'Updating…' : 'Include this device again'}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={deviceBusy}
+                  onClick={() => void toggleDeviceExclusion(true)}
+                  className="px-3 py-1.5 rounded text-xs bg-osint-dark border border-osint-border text-gray-200 hover:text-white disabled:opacity-40"
+                >
+                  {deviceBusy ? 'Updating…' : 'Exclude this device'}
+                </button>
+              )}
+            </div>
+            {deviceMessage && <p className="text-[11px] text-gray-400">{deviceMessage}</p>}
+          </div>
+        )}
+
         {loaded && (
           <div className="mt-4 flex gap-2 border-b border-osint-border">
             <button
@@ -196,6 +275,15 @@ export function AdminAnalytics({ onClose, embedded = false }: Props) {
                 One session = first visit from a browser tab (see sessionStorage). Country uses Cloudflare{' '}
                 <code className="text-gray-400">CF-IPCountry</code> when the worker sees the request; traffic
                 that does not hit your worker on Cloudflare may show as Unknown.
+                {stats.excludedDeviceCount > 0 && (
+                  <>
+                    {' '}
+                    <span className="text-gray-400">
+                      ({stats.excludedDeviceCount} excluded device
+                      {stats.excludedDeviceCount === 1 ? '' : 's'} omitted from totals.)
+                    </span>
+                  </>
+                )}
               </p>
             </div>
             {stats.byDay.length > 0 && (

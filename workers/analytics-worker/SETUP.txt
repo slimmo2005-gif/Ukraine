@@ -41,3 +41,6 @@ Notes
 - Session = one random UUID per browser tab session (sessionStorage); first
   successful POST counts as one session.
 - Password must never be committed in wrangler.toml for production; use secrets.
+- Exclude your own PC/phone: open #admin, enter password, click "Exclude this device"
+  on each browser. Re-run exclude-sessions-migration.sql once if the DB predates
+  the excluded_sessions table, then redeploy the worker.

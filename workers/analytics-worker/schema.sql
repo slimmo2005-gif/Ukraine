@@ -22,3 +22,9 @@ CREATE TABLE IF NOT EXISTS feedback (
 );
 
 CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback (created_at);
+
+-- Sessions excluded from visitor stats (owner devices, etc.)
+CREATE TABLE IF NOT EXISTS excluded_sessions (
+  session_id TEXT PRIMARY KEY NOT NULL,
+  excluded_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

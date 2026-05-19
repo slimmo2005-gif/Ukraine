@@ -1,4 +1,6 @@
 const SESSION_KEY = 'ukraine_analytics_session_id';
+/** When set, this browser does not send /visit (owner / test devices). */
+const EXCLUDE_KEY = 'ukraine_analytics_exclude';
 
 export function getAnalyticsBaseUrl(): string | null {
   const raw = import.meta.env.VITE_ANALYTICS_API_URL;
@@ -22,10 +24,31 @@ export function getOrCreateSessionId(): string {
   }
 }
 
+/** True when this browser is opted out of visitor analytics (localStorage). */
+export function isAnalyticsExcludedLocally(): boolean {
+  try {
+    return localStorage.getItem(EXCLUDE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function setAnalyticsExcludedLocally(excluded: boolean): void {
+  try {
+    if (excluded) {
+      localStorage.setItem(EXCLUDE_KEY, '1');
+    } else {
+      localStorage.removeItem(EXCLUDE_KEY);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Fire-and-forget: records one session per tab (worker uses INSERT OR IGNORE). */
 export function logPageSessionVisit(): void {
   const base = getAnalyticsBaseUrl();
-  if (!base) {
+  if (!base || isAnalyticsExcludedLocally()) {
     return;
   }
   const sessionId = getOrCreateSessionId();
@@ -43,10 +66,49 @@ export type AdminStatsResponse =
   | {
       ok: true;
       totalSessions: number;
+      excludedDeviceCount: number;
       byCountry: { country: string; count: number }[];
       byDay: { day: string; count: number }[];
     }
   | { ok: false; error: string };
+
+export type DeviceExclusionResult =
+  | { ok: true; excluded: boolean; sessionId: string }
+  | { ok: false; error: string };
+
+/** Register this browser's session as excluded (or included) on the worker. */
+export async function setDeviceSessionExclusion(
+  password: string,
+  exclude: boolean,
+): Promise<DeviceExclusionResult> {
+  const base = getAnalyticsBaseUrl();
+  if (!base) {
+    return { ok: false, error: 'Analytics API URL is not configured.' };
+  }
+  const sessionId = getOrCreateSessionId();
+  const path = exclude ? '/admin/exclude-session' : '/admin/include-session';
+  let res: Response;
+  try {
+    res = await fetch(`${base}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, sessionId }),
+    });
+  } catch {
+    return { ok: false, error: 'Could not reach the analytics server.' };
+  }
+  let data: DeviceExclusionResult & { error?: string };
+  try {
+    data = (await res.json()) as DeviceExclusionResult & { error?: string };
+  } catch {
+    return { ok: false, error: `Invalid response (HTTP ${res.status})` };
+  }
+  if (!data.ok) {
+    return { ok: false, error: data.error || `HTTP ${res.status}` };
+  }
+  setAnalyticsExcludedLocally(exclude);
+  return { ok: true, excluded: exclude, sessionId: data.sessionId ?? sessionId };
+}
 
 export async function fetchAdminStats(password: string): Promise<AdminStatsResponse> {
   const base = getAnalyticsBaseUrl();
@@ -82,6 +144,7 @@ export async function fetchAdminStats(password: string): Promise<AdminStatsRespo
   return {
     ok: true,
     totalSessions: data.totalSessions,
+    excludedDeviceCount: data.excludedDeviceCount ?? 0,
     byCountry: data.byCountry ?? [],
     byDay: data.byDay ?? [],
   };
