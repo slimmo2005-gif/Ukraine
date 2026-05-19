@@ -1,18 +1,12 @@
-# Mirror territory JSON into public/data/ and deploy (same-origin for corporate firewalls).
+# Downloads territory JSON into public/data/, commits to main, builds, and deploys Pages.
+# Regular code pushes use deploy.yml only (no download) to stay within API rate limits.
 name: Sync territory data and deploy
 
 on:
-  # 8:00 Australia/Melbourne — requires newer GitHub Actions; falls back to ~21:00 UTC if ignored.
   schedule:
     - cron: '0 8 * * *'
       timezone: Australia/Melbourne
   workflow_dispatch:
-    inputs:
-      skip_deploy:
-        description: 'Only sync files to repo (no Pages deploy)'
-        required: false
-        default: 'false'
-        type: boolean
 
 permissions:
   contents: write
@@ -20,11 +14,11 @@ permissions:
   id-token: write
 
 concurrency:
-  group: sync-territory-data
+  group: pages
   cancel-in-progress: false
 
 jobs:
-  sync:
+  sync-build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -44,6 +38,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/sync-territory-data.mjs
 
+      - name: Build site
+        env:
+          VITE_ANALYTICS_API_URL: https://ukraine-territory-analytics.slimmo2005-gif.workers.dev
+        run: npm run build
+
       - name: Commit bundled data (if changed)
         run: |
           git config user.name "github-actions[bot]"
@@ -56,38 +55,10 @@ jobs:
             git push
           fi
 
-  build-deploy:
-    needs: sync
-    if: github.event_name != 'workflow_dispatch' || inputs.skip_deploy != true
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref }}
-
-      - name: Pull latest (after sync commit)
-        run: git pull --ff-only
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Verify data bundle present
-        run: test -f public/data/manifest.json
-
-      - name: Build
-        env:
-          VITE_ANALYTICS_API_URL: https://ukraine-territory-analytics.slimmo2005-gif.workers.dev
-        run: npm run build
-
       - name: Setup Pages
         uses: actions/configure-pages@v4
+        with:
+          enablement: true
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
@@ -95,8 +66,7 @@ jobs:
           path: './dist'
 
   deploy:
-    needs: build-deploy
-    if: github.event_name != 'workflow_dispatch' || inputs.skip_deploy != true
+    needs: sync-build
     runs-on: ubuntu-latest
     environment:
       name: github-pages

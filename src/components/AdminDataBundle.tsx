@@ -7,6 +7,8 @@ import {
 const SYNC_WORKFLOW_URL =
   'https://github.com/slimmo2005-gif/Ukraine/actions/workflows/sync-territory-data.yml';
 
+const PAGES_SETTINGS_URL = 'https://github.com/slimmo2005-gif/Ukraine/settings/pages';
+
 type Props = {
   /** When the dashboard last loaded territory rows successfully. */
   liveSource: 'bundled' | 'remote' | 'none';
@@ -74,14 +76,24 @@ export function AdminDataBundle({ liveSource }: Props) {
       {manifestError && (
         <p className="text-xs text-amber-400/90">{manifestError}</p>
       )}
-      <a
-        href={SYNC_WORKFLOW_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-block text-sm text-ukraine-blue hover:underline"
-      >
-        Re-run sync &amp; deploy (GitHub Actions) →
-      </a>
+      <div className="flex flex-col gap-1">
+        <a
+          href={SYNC_WORKFLOW_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sm text-ukraine-blue hover:underline"
+        >
+          Re-run sync &amp; deploy (GitHub Actions) →
+        </a>
+        <a
+          href={PAGES_SETTINGS_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs text-gray-500 hover:text-gray-300"
+        >
+          GitHub Pages settings (source must be GitHub Actions)
+        </a>
+      </div>
     </section>
   );
 }

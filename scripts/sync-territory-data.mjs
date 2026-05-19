@@ -19,8 +19,10 @@ const API_BASE = `https://api.github.com/repos/${SOURCE_REPO}`;
 
 const EXCLUDED_DATES = new Set(['2026-05-03']);
 
-const CONCURRENCY = 20;
+const CONCURRENCY = 12;
 const API_RETRIES = 4;
+/** Pause between raw downloads to avoid hammering GitHub CDN. */
+const DOWNLOAD_DELAY_MS = 25;
 
 function authHeaders() {
   const token = process.env.GITHUB_TOKEN;
@@ -158,8 +160,13 @@ async function syncKind(kind, branch, dateToRepoPath) {
   let fail = 0;
   const downloadedDates = [];
 
+  let downloadIndex = 0;
   await mapPool(entries, CONCURRENCY, async ([dateKey, repoPath]) => {
     const dest = path.join(outSub, `${dateKey}.json`);
+    const n = downloadIndex++;
+    if (DOWNLOAD_DELAY_MS > 0 && n > 0 && n % CONCURRENCY === 0) {
+      await sleep(DOWNLOAD_DELAY_MS * CONCURRENCY);
+    }
     try {
       await downloadFile(branch, repoPath, dest);
       ok += 1;

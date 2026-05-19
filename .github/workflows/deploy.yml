@@ -37,10 +37,24 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Sync territory data bundle
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node scripts/sync-territory-data.mjs
+      - name: Verify territory data bundle
+        run: |
+          node --input-type=module -e "
+          import fs from 'node:fs';
+          const p = 'public/data/manifest.json';
+          if (!fs.existsSync(p)) {
+            console.error('::error::Missing public/data/manifest.json');
+            console.error('Run Actions → Sync territory data and deploy once to download and commit data.');
+            process.exit(1);
+          }
+          const m = JSON.parse(fs.readFileSync(p, 'utf8'));
+          if (!Array.isArray(m.daily) || m.daily.length < 1) {
+            console.error('::error::manifest has no daily snapshots.');
+            console.error('Run Actions → Sync territory data and deploy once.');
+            process.exit(1);
+          }
+          console.log('Bundle OK:', m.daily.length, 'daily files, synced', m.syncedAt);
+          "
 
       - name: Build
         env:
@@ -50,6 +64,8 @@ jobs:
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
+        with:
+          enablement: true
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
