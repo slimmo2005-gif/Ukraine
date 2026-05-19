@@ -2,12 +2,14 @@ import { useState } from 'react';
 import {
   fetchAdminFeedback,
   fetchAdminStats,
+  fetchDeviceStatus,
   getAnalyticsBaseUrl,
   getOrCreateSessionId,
   isAnalyticsExcludedLocally,
   setDeviceSessionExclusion,
   type AdminFeedbackResponse,
   type AdminStatsResponse,
+  type DeviceStatusResult,
   type FeedbackItem,
 } from '@/lib/analytics';
 
@@ -72,6 +74,9 @@ export function AdminAnalytics({ onClose, embedded = false }: Props) {
   const [deviceBusy, setDeviceBusy] = useState(false);
   const [deviceMessage, setDeviceMessage] = useState<string | null>(null);
   const [excludedLocally, setExcludedLocally] = useState(() => isAnalyticsExcludedLocally());
+  const [deviceStatus, setDeviceStatus] = useState<Extract<DeviceStatusResult, { ok: true }> | null>(
+    null,
+  );
   const [tab, setTab] = useState<AdminTab>('visitors');
   const [stats, setStats] = useState<Extract<AdminStatsResponse, { ok: true }> | null>(null);
   const [feedback, setFeedback] = useState<Extract<AdminFeedbackResponse, { ok: true }> | null>(null);
@@ -87,6 +92,21 @@ export function AdminAnalytics({ onClose, embedded = false }: Props) {
     }
   })();
 
+  async function refreshVisitorPanel(pwd: string) {
+    const [statsResult, statusResult] = await Promise.all([
+      fetchAdminStats(pwd),
+      fetchDeviceStatus(pwd),
+    ]);
+    if (statsResult.ok) {
+      setStats(statsResult);
+    }
+    if (statusResult.ok) {
+      setDeviceStatus(statusResult);
+      setExcludedLocally(statusResult.isExcluded || isAnalyticsExcludedLocally());
+    }
+    return { statsResult, statusResult };
+  }
+
   async function toggleDeviceExclusion(exclude: boolean) {
     if (!password.trim()) {
       setDeviceMessage('Enter your admin password above first, then exclude or include this device.');
@@ -95,23 +115,40 @@ export function AdminAnalytics({ onClose, embedded = false }: Props) {
     setDeviceBusy(true);
     setDeviceMessage(null);
     setError(null);
-    const result = await setDeviceSessionExclusion(password.trim(), exclude);
-    setDeviceBusy(false);
+    const pwd = password.trim();
+    const result = await setDeviceSessionExclusion(pwd, exclude);
     if (!result.ok) {
+      setDeviceBusy(false);
       setDeviceMessage(result.error);
       return;
     }
     setExcludedLocally(exclude);
-    setDeviceMessage(
-      exclude
-        ? 'This browser will not be counted. Reload visitor stats to see updated totals.'
-        : 'This browser may be counted again on the next normal visit (not on #admin).',
-    );
-    if (loaded) {
-      const statsResult = await fetchAdminStats(password);
-      if (statsResult.ok) {
-        setStats(statsResult);
+    const { statsResult, statusResult } = await refreshVisitorPanel(pwd);
+    setDeviceBusy(false);
+
+    if (exclude) {
+      if (result.removedFromVisits) {
+        setDeviceMessage(
+          'Excluded and removed 1 session from visitor totals. Future visits from this browser are blocked.',
+        );
+      } else {
+        setDeviceMessage(
+          'Excluded for future visits. Totals did not change because this tab’s session was never logged — open the main dashboard (not #admin) once, then exclude again if needed.',
+        );
       }
+    } else if (result.removedFromExcludedList) {
+      setDeviceMessage(
+        'This browser can be counted again. Open the main dashboard (not #admin) in this tab to register one new session.',
+      );
+    } else {
+      setDeviceMessage('This browser was not on the excluded list.');
+    }
+
+    if (!statsResult.ok && loaded) {
+      setDeviceMessage((m) => `${m ?? ''} Could not refresh stats.`.trim());
+    }
+    if (!statusResult.ok) {
+      setDeviceMessage((m) => `${m ?? ''} ${statusResult.error}`.trim());
     }
   }
 
@@ -137,6 +174,10 @@ export function AdminAnalytics({ onClose, embedded = false }: Props) {
       }
       setStats(statsResult);
       setFeedback(feedbackResult);
+      const statusResult = await fetchDeviceStatus(pwd);
+      if (statusResult.ok) {
+        setDeviceStatus(statusResult);
+      }
     } catch {
       setError('Could not reach the analytics server. Check your connection.');
     } finally {
@@ -207,14 +248,29 @@ export function AdminAnalytics({ onClose, embedded = false }: Props) {
           <div className="mt-4 p-3 rounded border border-osint-border bg-osint-dark/40 space-y-2">
             <p className="text-xs uppercase tracking-wide text-gray-500">Your devices</p>
             <p className="text-[11px] text-gray-500 leading-snug">
-              Exclude this browser (PC or phone) from visitor counts. Repeat on each device you use. Session{' '}
-              <code className="text-gray-400">{sessionIdShort}</code>
-              {excludedLocally ? (
-                <span className="text-emerald-400/90"> — excluded on this device</span>
-              ) : (
-                <span className="text-gray-500"> — counted when you visit the main site (not #admin)</span>
-              )}
+              Exclude this browser (PC or phone) from visitor counts. Repeat on each device you use. The main
+              dashboard logs a visit; <strong className="text-gray-400">#admin alone does not</strong>.
             </p>
+            <dl className="text-[11px] grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-gray-500">
+              <dt>Session</dt>
+              <dd>
+                <code className="text-gray-400">{sessionIdShort}</code>
+              </dd>
+              <dt>This device</dt>
+              <dd className="text-gray-300">
+                {deviceStatus
+                  ? deviceStatus.isExcluded
+                    ? 'Excluded from stats'
+                    : deviceStatus.countsInVisitorStats
+                      ? `Counted in totals (${deviceStatus.country ?? '?'})`
+                      : deviceStatus.isInVisitsTable
+                        ? 'In logs but filtered'
+                        : 'Not in visitor logs yet'
+                  : excludedLocally
+                    ? 'Excluded (local opt-out)'
+                    : 'Load data to check status'}
+              </dd>
+            </dl>
             <div className="flex flex-wrap gap-2">
               {excludedLocally ? (
                 <button
@@ -269,24 +325,25 @@ export function AdminAnalytics({ onClose, embedded = false }: Props) {
 
         {stats && tab === 'visitors' && (
           <div className="mt-5 pt-4 border-t border-osint-border space-y-4">
-            <div>
-              <p className="text-xs uppercase tracking-wide text-gray-500">Total sessions</p>
-              <p className="text-2xl font-semibold text-white tabular-nums">{stats.totalSessions.toLocaleString()}</p>
-              <p className="text-[11px] text-gray-500 mt-1">
-                One session = first visit from a browser tab (see sessionStorage). Country uses Cloudflare{' '}
-                <code className="text-gray-400">CF-IPCountry</code> when the worker sees the request; traffic
-                that does not hit your worker on Cloudflare may show as Unknown.
-                {stats.excludedDeviceCount > 0 && (
-                  <>
-                    {' '}
-                    <span className="text-gray-400">
-                      ({stats.excludedDeviceCount} excluded device
-                      {stats.excludedDeviceCount === 1 ? '' : 's'} omitted from totals.)
-                    </span>
-                  </>
-                )}
-              </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded border border-osint-border bg-osint-dark/30 p-3">
+                <p className="text-xs uppercase tracking-wide text-gray-500">Visitor sessions</p>
+                <p className="text-2xl font-semibold text-white tabular-nums">
+                  {stats.totalSessions.toLocaleString()}
+                </p>
+              </div>
+              <div className="rounded border border-osint-border bg-osint-dark/30 p-3">
+                <p className="text-xs uppercase tracking-wide text-gray-500">Excluded devices</p>
+                <p className="text-2xl font-semibold text-white tabular-nums">
+                  {stats.excludedDeviceCount.toLocaleString()}
+                </p>
+              </div>
             </div>
+            <p className="text-[11px] text-gray-500 leading-snug">
+              One session = first visit on the main dashboard (not #admin). Country uses Cloudflare{' '}
+              <code className="text-gray-400">CF-IPCountry</code>. Excluded devices are omitted from visitor
+              session totals.
+            </p>
             {stats.byDay.length > 0 && (
               <div>
                 <p className="text-xs uppercase tracking-wide text-gray-500 mb-2">Sessions over time</p>

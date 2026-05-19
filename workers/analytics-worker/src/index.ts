@@ -4,6 +4,7 @@
  * - POST /admin/stats { password } — returns session totals and counts by country (excludes owner devices).
  * - POST /admin/exclude-session { password, sessionId } — stop counting this browser; removes existing row.
  * - POST /admin/include-session { password, sessionId } — allow counting again (optional).
+ * - POST /admin/device-status { password, sessionId } — whether this tab’s session is in visitor logs.
  * - POST /feedback { message, contactEmail?, contactWhatsapp?, contactDiscord? }
  * - POST /admin/feedback { password } — list feedback grouped by date.
  *
@@ -210,8 +211,16 @@ export default {
         )
           .bind(sessionId)
           .run();
-        await env.DB.prepare(`DELETE FROM visits WHERE session_id = ?`).bind(sessionId).run();
-        return jsonResponse(env, request, 200, { ok: true, excluded: true, sessionId });
+        const deleteResult = await env.DB.prepare(`DELETE FROM visits WHERE session_id = ?`)
+          .bind(sessionId)
+          .run();
+        const removedFromVisits = (deleteResult.meta?.changes ?? 0) > 0;
+        return jsonResponse(env, request, 200, {
+          ok: true,
+          excluded: true,
+          sessionId,
+          removedFromVisits,
+        });
       }
 
       if (path === '/admin/include-session' && request.method === 'POST') {
@@ -229,10 +238,47 @@ export default {
         if (!isValidSessionId(sessionId)) {
           return jsonResponse(env, request, 400, { ok: false, error: 'Invalid sessionId' });
         }
-        await env.DB.prepare(`DELETE FROM excluded_sessions WHERE session_id = ?`)
+        const del = await env.DB.prepare(`DELETE FROM excluded_sessions WHERE session_id = ?`)
           .bind(sessionId)
           .run();
-        return jsonResponse(env, request, 200, { ok: true, excluded: false, sessionId });
+        const wasExcluded = (del.meta?.changes ?? 0) > 0;
+        return jsonResponse(env, request, 200, {
+          ok: true,
+          excluded: false,
+          sessionId,
+          removedFromExcludedList: wasExcluded,
+        });
+      }
+
+      if (path === '/admin/device-status' && request.method === 'POST') {
+        let payload: { password?: string; sessionId?: string };
+        try {
+          payload = (await request.json()) as { password?: string; sessionId?: string };
+        } catch {
+          return jsonResponse(env, request, 400, { ok: false, error: 'Invalid JSON' });
+        }
+        const password = typeof payload.password === 'string' ? payload.password : '';
+        if (!(await verifyAdminPassword(env, password))) {
+          return jsonResponse(env, request, 401, { ok: false, error: 'Unauthorized' });
+        }
+        const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId.trim() : '';
+        if (!isValidSessionId(sessionId)) {
+          return jsonResponse(env, request, 400, { ok: false, error: 'Invalid sessionId' });
+        }
+        const visitRow = await env.DB.prepare(
+          `SELECT country FROM visits WHERE session_id = ? LIMIT 1`,
+        )
+          .bind(sessionId)
+          .first<{ country: string }>();
+        const isExcluded = await isSessionExcluded(env, sessionId);
+        return jsonResponse(env, request, 200, {
+          ok: true,
+          sessionId,
+          isExcluded,
+          isInVisitsTable: Boolean(visitRow),
+          countsInVisitorStats: Boolean(visitRow) && !isExcluded,
+          country: visitRow?.country ?? null,
+        });
       }
 
       if (path === '/feedback' && request.method === 'POST') {

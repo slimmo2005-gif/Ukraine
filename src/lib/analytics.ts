@@ -73,8 +73,56 @@ export type AdminStatsResponse =
   | { ok: false; error: string };
 
 export type DeviceExclusionResult =
-  | { ok: true; excluded: boolean; sessionId: string }
+  | {
+      ok: true;
+      excluded: boolean;
+      sessionId: string;
+      removedFromVisits?: boolean;
+      removedFromExcludedList?: boolean;
+    }
   | { ok: false; error: string };
+
+export type DeviceStatusResult =
+  | {
+      ok: true;
+      sessionId: string;
+      isExcluded: boolean;
+      isInVisitsTable: boolean;
+      countsInVisitorStats: boolean;
+      country: string | null;
+    }
+  | { ok: false; error: string };
+
+export async function fetchDeviceStatus(
+  password: string,
+  sessionId?: string,
+): Promise<DeviceStatusResult> {
+  const base = getAnalyticsBaseUrl();
+  if (!base) {
+    return { ok: false, error: 'Analytics API URL is not configured.' };
+  }
+  const sid = sessionId ?? getOrCreateSessionId();
+  let res: Response;
+  try {
+    res = await fetch(`${base}/admin/device-status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: password.trim(), sessionId: sid }),
+    });
+  } catch {
+    return { ok: false, error: 'Could not reach the analytics server.' };
+  }
+  let data: DeviceStatusResult & { error?: string };
+  try {
+    data = (await res.json()) as DeviceStatusResult & { error?: string };
+  } catch {
+    return { ok: false, error: `Invalid response (HTTP ${res.status})` };
+  }
+  if (!data.ok) {
+    return { ok: false, error: data.error || `HTTP ${res.status}` };
+  }
+  return data;
+}
 
 /** Register this browser's session as excluded (or included) on the worker. */
 export async function setDeviceSessionExclusion(
@@ -107,7 +155,13 @@ export async function setDeviceSessionExclusion(
     return { ok: false, error: data.error || `HTTP ${res.status}` };
   }
   setAnalyticsExcludedLocally(exclude);
-  return { ok: true, excluded: exclude, sessionId: data.sessionId ?? sessionId };
+  return {
+    ok: true,
+    excluded: exclude,
+    sessionId: data.sessionId ?? sessionId,
+    removedFromVisits: data.removedFromVisits,
+    removedFromExcludedList: data.removedFromExcludedList,
+  };
 }
 
 export async function fetchAdminStats(password: string): Promise<AdminStatsResponse> {
