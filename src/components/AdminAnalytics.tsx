@@ -95,7 +95,7 @@ export function AdminAnalytics({ onClose, embedded = false }: Props) {
     setDeviceBusy(true);
     setDeviceMessage(null);
     setError(null);
-    const result = await setDeviceSessionExclusion(password, exclude);
+    const result = await setDeviceSessionExclusion(password.trim(), exclude);
     setDeviceBusy(false);
     if (!result.ok) {
       setDeviceMessage(result.error);
@@ -122,9 +122,10 @@ export function AdminAnalytics({ onClose, embedded = false }: Props) {
     setFeedback(null);
     setLoading(true);
     try {
+      const pwd = password.trim();
       const [statsResult, feedbackResult] = await Promise.all([
-        fetchAdminStats(password),
-        fetchAdminFeedback(password),
+        fetchAdminStats(pwd),
+        fetchAdminFeedback(pwd),
       ]);
       if (!statsResult.ok) {
         setError(statsResult.error);

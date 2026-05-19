@@ -139,7 +139,13 @@ export async function fetchAdminStats(password: string): Promise<AdminStatsRespo
     };
   }
   if (!data.ok) {
-    return { ok: false, error: data.error || `HTTP ${res.status}` };
+    const hint =
+      res.status === 401
+        ? ' Incorrect password — reset with wrangler secret put ADMIN_PASSWORD (see SETUP.txt).'
+        : res.status === 503
+          ? ' Worker admin password not configured on Cloudflare.'
+          : '';
+    return { ok: false, error: (data.error || `HTTP ${res.status}`) + hint };
   }
   return {
     ok: true,

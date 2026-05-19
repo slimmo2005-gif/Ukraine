@@ -52,8 +52,19 @@ async function isSessionExcluded(env: Env, sessionId: string): Promise<boolean> 
 }
 
 async function verifyAdminPassword(env: Env, password: string): Promise<boolean> {
-  const expected = env.ADMIN_PASSWORD || '';
-  return Boolean(expected && password === expected);
+  const expected = (env.ADMIN_PASSWORD || '').trim();
+  const supplied = password.trim();
+  return Boolean(expected && supplied === expected);
+}
+
+/** Idempotent — stats/exclude features need this table (migration may not have been run). */
+async function ensureExcludedSessionsTable(env: Env): Promise<void> {
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS excluded_sessions (
+      session_id TEXT PRIMARY KEY NOT NULL,
+      excluded_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+  ).run();
 }
 
 const VISITS_NOT_EXCLUDED = `NOT EXISTS (
@@ -86,6 +97,8 @@ export default {
     const path = url.pathname.replace(/\/$/, '') || '/';
 
     try {
+      await ensureExcludedSessionsTable(env);
+
       if (path === '/visit' && request.method === 'POST') {
         let payload: { sessionId?: string };
         try {
@@ -121,8 +134,18 @@ export default {
           return jsonResponse(env, request, 400, { ok: false, error: 'Invalid JSON' });
         }
         const password = typeof payload.password === 'string' ? payload.password : '';
+        if (!(env.ADMIN_PASSWORD || '').trim()) {
+          return jsonResponse(env, request, 503, {
+            ok: false,
+            error:
+              'ADMIN_PASSWORD is not set on the worker. Run: cd workers/analytics-worker && npx wrangler secret put ADMIN_PASSWORD',
+          });
+        }
         if (!(await verifyAdminPassword(env, password))) {
-          return jsonResponse(env, request, 401, { ok: false, error: 'Unauthorized' });
+          return jsonResponse(env, request, 401, {
+            ok: false,
+            error: 'Incorrect password. Reset with: npx wrangler secret put ADMIN_PASSWORD',
+          });
         }
 
         const totalRow = await env.DB.prepare(
