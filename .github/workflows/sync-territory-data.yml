@@ -1,5 +1,4 @@
-# Downloads territory JSON into public/data/, commits to main, builds, and deploys Pages.
-# Regular code pushes use deploy.yml only (no download) to stay within API rate limits.
+# Clone ukraine-territory-data (git only, no REST API), bundle, commit, deploy to gh-pages branch.
 name: Sync territory data and deploy
 
 on:
@@ -10,18 +9,16 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 concurrency:
-  group: pages
+  group: sync-territory-data
   cancel-in-progress: false
 
 jobs:
-  sync-build:
+  sync-build-deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout app
         uses: actions/checkout@v4
 
       - name: Setup Node
@@ -33,10 +30,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Sync territory data bundle
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node scripts/sync-territory-data.mjs
+      - name: Clone territory data repository
+        run: |
+          REPO="https://github.com/slimmo2005-gif/ukraine-territory-data.git"
+          if ! git clone --depth 1 --single-branch --branch master "$REPO" .data-source 2>/dev/null; then
+            git clone --depth 1 --single-branch --branch main "$REPO" .data-source
+          fi
+
+      - name: Bundle JSON into public/data
+        run: node scripts/bundle-data-from-clone.mjs .data-source
 
       - name: Build site
         env:
@@ -55,23 +57,9 @@ jobs:
             git push
           fi
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
+      - name: Deploy to GitHub Pages (gh-pages branch)
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          enablement: true
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: './dist'
-
-  deploy:
-    needs: sync-build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          commit_message: 'deploy: sync territory data and site build'

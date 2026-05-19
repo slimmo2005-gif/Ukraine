@@ -4,7 +4,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "sync-data": "node scripts/sync-territory-data.mjs",
+    "sync-data": "node scripts/bundle-data-from-clone.mjs .data-source",
+    "sync-data:clone": "git clone --depth 1 --branch master https://github.com/slimmo2005-gif/ukraine-territory-data.git .data-source && npm run sync-data",
     "dev": "vite",
     "build": "tsc && vite build",
     "build:full": "npm run sync-data && npm run build",

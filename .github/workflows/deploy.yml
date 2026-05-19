@@ -1,28 +1,19 @@
 name: Deploy to GitHub Pages
 
 on:
-  # Runs on pushes targeting the default branch
   push:
     branches: ['main', 'master']
-
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
-# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
 concurrency:
-  group: 'pages'
+  group: deploy-gh-pages
   cancel-in-progress: false
 
 jobs:
-  # Build job
-  build:
+  build-deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -44,43 +35,26 @@ jobs:
           const p = 'public/data/manifest.json';
           if (!fs.existsSync(p)) {
             console.error('::error::Missing public/data/manifest.json');
-            console.error('Run Actions → Sync territory data and deploy once to download and commit data.');
+            console.error('Run Actions → Sync territory data and deploy once first.');
             process.exit(1);
           }
           const m = JSON.parse(fs.readFileSync(p, 'utf8'));
           if (!Array.isArray(m.daily) || m.daily.length < 1) {
-            console.error('::error::manifest has no daily snapshots.');
-            console.error('Run Actions → Sync territory data and deploy once.');
+            console.error('::error::No daily snapshots in bundle.');
+            console.error('Run Actions → Sync territory data and deploy once first.');
             process.exit(1);
           }
-          console.log('Bundle OK:', m.daily.length, 'daily files, synced', m.syncedAt);
+          console.log('Bundle OK:', m.daily.length, 'daily files');
           "
 
       - name: Build
         env:
-          # Public worker URL (no trailing slash). Override via repo secret VITE_ANALYTICS_API_URL if needed.
           VITE_ANALYTICS_API_URL: https://ukraine-territory-analytics.slimmo2005-gif.workers.dev
         run: npm run build
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
+      - name: Deploy to GitHub Pages (gh-pages branch)
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          enablement: true
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          # Upload dist folder
-          path: './dist'
-
-  # Deployment job
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          commit_message: 'deploy: site build from main'
