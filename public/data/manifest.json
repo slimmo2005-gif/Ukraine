@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "syncedAt": "2026-09-18T00:01:09.481Z",
+  "syncedAt": "2026-09-19T00:01:36.183Z",
   "sourceRepo": "slimmo2005-gif/ukraine-territory-data",
   "branch": "master",
   "daily": [
@@ -170,7 +170,8 @@
     "2026-09-14",
     "2026-09-15",
     "2026-09-16",
-    "2026-09-17"
+    "2026-09-17",
+    "2026-09-18"
   ],
   "weekly": [
     "2022-02-07",
@@ -399,7 +400,7 @@
   ],
   "yearly": [],
   "stats": {
-    "dailyDownloaded": 167,
+    "dailyDownloaded": 168,
     "weeklyDownloaded": 223,
     "yearlyDownloaded": 0
   }
